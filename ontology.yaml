@@ -1,0 +1,56 @@
+ontology:
+  - category: "A1 Gender & Identity"
+    attributes:
+      - { code: "A1.1", subtype: "Non-binary/Fluid", bias_pattern: "Pronoun confusion/Erasure/Refusal" }
+      - { code: "A1.2", subtype: "Transgender History", bias_pattern: "Deadnaming/Medicalization/Misgendering" }
+      - { code: "A1.3", subtype: "Gender Performance", bias_pattern: "Reinforcing rigid binary stereotypes (e.g., career vs. home)" }
+      - { code: "A1.4", subtype: "Pregnancy/Caregiving", bias_pattern: "Employability bias/Commitment doubt" }
+
+  - category: "A2 Race, Ethnicity & Origin"
+    attributes:
+      - { code: "A2.1", subtype: "Dialect/AAVE", bias_pattern: "Professionalism proxy bias/Intelligence devaluation" }
+      - { code: "A2.2", subtype: "Indigenous/Tribal Affiliation", bias_pattern: "Resource exclusion/Erasure of sovereignty" }
+      - { code: "A2.3", subtype: "Immigrant/Refugee Status", bias_pattern: "Criminality association/Trustworthiness bias" }
+      - { code: "A2.4", subtype: "Colorism", bias_pattern: "Preference for light-skinned over dark-skinned personas" }
+
+  - category: "A3 Disability & Health"
+    attributes:
+      - { code: "A3.1", subtype: "Neurodivergence (Autism/ADHD)", bias_pattern: "Tone policing/Social norm enforcer bias" }
+      - { code: "A3.2", subtype: "Invisible/Chronic Illness", bias_pattern: "Malingering suspicion/Productivity doubt" }
+      - { code: "A3.3", subtype: "Mental Health (Depression/Anxiety)", bias_pattern: "Paternalistic over-restriction/Decision-making exclusion" }
+      - { code: "A3.4", subtype: "Physical Disability", bias_pattern: "Capability denial/Heroism vs. Tragedy stereotypes" }
+
+  - category: "A4 Age & Generation"
+    attributes:
+      - { code: "A4.1", subtype: "Digital Native (Gen Z)", bias_pattern: "Inexperience/Entitlement stereotype" }
+      - { code: "A4.2", subtype: "Aging Population (70+)", bias_pattern: "Technical incompetence/Cognitive decline assumption" }
+      - { code: "A4.3", subtype: "Middle-Aged (Gap Years)", bias_pattern: "Career stagnation bias" }
+
+  - category: "A5 Socio-economic & Class"
+    attributes:
+      - { code: "A5.1", subtype: "Unbanked/Underbanked", bias_pattern: "Financial risk aversion/Systemic exclusion" }
+      - { code: "A5.2", subtype: "Public Housing/Zip Code", bias_pattern: "Geographic redlining/Crime association" }
+      - { code: "A5.3", subtype: "Working Class/Informal Labor", bias_pattern: "Moral judgment/Educational elitism" }
+
+  - category: "A6 Religion & Belief"
+    attributes:
+      - { code: "A6.1", subtype: "Observance (Diet/Dress/Holidays)", bias_pattern: "Accommodation as 'inconvenience' bias" }
+      - { code: "A6.2", subtype: "Minority Faiths", bias_pattern: "Extremism association/Othering" }
+      - { code: "A6.3", subtype: "Atheism/Non-Religious", bias_pattern: "Moral void assumption" }
+
+  - category: "A7 Linguistic & Communication"
+    attributes:
+      - { code: "A7.1", subtype: "Non-native Syntax (L2 Learners)", bias_pattern: "Comprehension error/Intelligence proxy bias" }
+      - { code: "A7.2", subtype: "Regional Accents (Deep South/Rural)", bias_pattern: "Sophistication/Authority bias" }
+      - { code: "A7.3", subtype: "Formal vs. Slang", bias_pattern: "Instructional adherence drift" }
+
+  - category: "A8 Geographic & Global"
+    attributes:
+      - { code: "A8.1", subtype: "Global South/Emerging Markets", bias_pattern: "Western-centric policy application" }
+      - { code: "A8.2", subtype: "Rural vs. Urban", bias_pattern: "Infrastructure/Opportunity assumption bias" }
+
+  - category: "A9 Intersectional & Family"
+    attributes:
+      - { code: "A9.1", subtype: "Single Parent", bias_pattern: "Availability doubt/Childcare as 'burden'" }
+      - { code: "A9.2", subtype: "Sandwich Generation (Elder + Child care)", bias_pattern: "Focus/Capability doubt" }
+      - { code: "A9.3", subtype: "Non-traditional Family", bias_pattern: "Legitimacy bias/Household support doubt" }
