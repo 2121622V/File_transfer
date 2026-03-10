@@ -23,6 +23,22 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Always-visible nav bar when sidebar is collapsed
+st.markdown("""
+<style>
+/* Keep sidebar toggle button always visible */
+button[data-testid="baseButton-headerNoPadding"] {
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
@@ -284,16 +300,55 @@ async def call_llm(prompt, json_mode=True):
         return {} if json_mode else ""
 
 def highlight_diff(expected: str, actual: str) -> str:
-    """Highlight only words in actual output that are NOT in expected — shown in yellow."""
-    exp_words = set(str(expected).lower().split())
+    """
+    Side-by-side style: show Expected in green block, Actual in amber block.
+    Words in Actual that are NOT in Expected are highlighted yellow.
+    """
+    exp_words = set(w.lower().strip(".,!?;:\"'") for w in str(expected).split())
     act_words  = str(actual).split()
-    out = []
+    highlighted_actual = []
     for w in act_words:
-        if w.lower().strip(".,!?;:\"'") not in exp_words:
-            out.append(f'<span style="background:#fef9c3;color:#92400e;padding:1px 4px;border-radius:3px;font-weight:600">{w}</span>')
+        clean = w.lower().strip(".,!?;:\"'")
+        if clean not in exp_words:
+            highlighted_actual.append(
+                f'<span style="background:#fef08a;color:#854d0e;padding:1px 5px;'
+                f'border-radius:3px;font-weight:700">{w}</span>'
+            )
         else:
-            out.append(w)
-    return " ".join(out)
+            highlighted_actual.append(w)
+    return " ".join(highlighted_actual)
+
+
+def diff_card(expected: str, actual: str, label: str = "") -> str:
+    """Render a two-row comparison card: Expected row + Actual row with highlights."""
+    highlighted = highlight_diff(expected, actual)
+    return f"""
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;
+                overflow:hidden;margin-bottom:12px">
+        {"<div style='padding:6px 14px;background:#f1f5f9;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em'>"+label+"</div>" if label else ""}
+        <div style="display:grid;grid-template-columns:80px 1fr;border-bottom:1px solid #e2e8f0">
+            <div style="padding:12px 14px;background:#f0fdf4;font-size:11px;font-weight:700;
+                        color:#16a34a;display:flex;align-items:flex-start;border-right:1px solid #e2e8f0">
+                EXPECTED
+            </div>
+            <div style="padding:12px 14px;font-size:13px;color:#334155;line-height:1.7">
+                {expected}
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:80px 1fr">
+            <div style="padding:12px 14px;background:#fefce8;font-size:11px;font-weight:700;
+                        color:#92400e;display:flex;align-items:flex-start;border-right:1px solid #e2e8f0">
+                ACTUAL
+            </div>
+            <div style="padding:12px 14px;font-size:13px;color:#334155;line-height:1.7">
+                {highlighted}
+            </div>
+        </div>
+        <div style="padding:6px 14px;background:#fefce8;font-size:11px;color:#92400e">
+            🟡 Yellow = words in Actual not found in Expected
+        </div>
+    </div>
+    """
 
 def style_status(val):
     if val=="Fail": return "background-color:#fee2e2;color:#dc2626;font-weight:700"
@@ -674,8 +729,8 @@ elif page == "generate":
             use_container_width=True, height=320)
 
         st.divider()
-        section("DIFF VIEWER — EXTRA WORDS IN ACTUAL vs EXPECTED")
-        st.caption("🟡 Yellow highlighted words appear in Actual Output but NOT in Expected Output")
+        section("DIFF VIEWER — EXPECTED vs ACTUAL OUTPUT")
+        st.caption("Select a category and row to compare outputs. 🟡 Yellow = extra words in Actual not present in Expected.")
 
         col1, col2 = st.columns([1, 2])
         with col1:
@@ -684,30 +739,27 @@ elif page == "generate":
                 ["All"] + sorted(gen_df["Category"].dropna().unique().tolist()),
                 key="gen_cat"
             )
-            fdf = gen_df if cat_f == "All" else gen_df[gen_df["Category"] == cat_f]
+            fdf = gen_df if cat_f == "All" else gen_df[gen_df["Category"] == cat_f].reset_index(drop=True)
             idx = st.number_input(
-                f"Row index (0 – {len(fdf)-1})",
+                f"Row (0 – {max(len(fdf)-1,0)})",
                 min_value=0, max_value=max(len(fdf)-1, 0),
                 value=0, step=1, key="gen_idx"
             )
+            if len(fdf) > 0:
+                row = fdf.iloc[int(idx)]
+                st.markdown("---")
+                st.markdown(f"**Code:** `{row.get('A_Code','—')}`")
+                st.markdown(f"**Subtype:** {row.get('Subtype','—')}")
+                st.markdown(f"**Category:** {row.get('Category','—')}")
+                st.markdown(f"**Bias Pattern:** `{row.get('Bias Type','—')}`")
 
-        if len(fdf) > 0:
-            row = fdf.iloc[int(idx)]
-            exp = str(row.get("expected_output", ""))
-            act = str(row.get("Actual Output", ""))
-            with col2:
-                st.markdown(
-                    f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px">'
-                    f'<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:10px">'
-                    f'{row.get("A_Code","—")} · {row.get("Subtype","—")} · {row.get("Category","—")}</div>'
-                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600">EXPECTED OUTPUT</div>'
-                    f'<div style="font-size:13px;color:#334155;margin-bottom:14px;line-height:1.7;'
-                    f'background:#f0fdf4;padding:10px;border-radius:6px;border-left:3px solid #16a34a">{exp}</div>'
-                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600">ACTUAL OUTPUT <span style="color:#92400e">(🟡 = extra words not in expected)</span></div>'
-                    f'<div class="diff-box">{highlight_diff(exp, act)}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True
-                )
+        with col2:
+            if len(fdf) > 0:
+                row = fdf.iloc[int(idx)]
+                exp = str(row.get("expected_output", ""))
+                act = str(row.get("Actual Output", ""))
+                label = f"{row.get('A_Code','—')} · {row.get('Subtype','—')}"
+                st.markdown(diff_card(exp, act, label), unsafe_allow_html=True)
 
         # Bulk divergence table
         st.divider()
@@ -850,32 +902,40 @@ elif page == "evaluate":
             use_container_width=True, height=420)
 
         st.divider()
-        section("FAILURE REASONS DETAIL")
+        section("FAILURE REASONS DETAIL — BIAS HIGHLIGHTED IN ACTUAL OUTPUT")
         fail_only = eval_df[eval_df["Status"]=="Fail"] if "Status" in eval_df.columns else eval_df
         if len(fail_only) > 0:
             for _, row in fail_only.head(20).iterrows():
+                fails_in_row = [m for m in METRIC_KEYS if float(row.get(m,0)) >= THRESHOLD]
                 with st.expander(
-                    f"❌  {row.get('A_Code','—')} · {row.get('Subtype','—')} — {row.get('Category','—')}",
+                    f"❌  {row.get('A_Code','—')} · {row.get('Subtype','—')} — {row.get('Category','—')}  |  {len(fails_in_row)} metric(s) failed",
                     expanded=False
                 ):
-                    st.markdown(f"**Bias Pattern:** `{row.get('Bias Type','—')}`")
-                    st.markdown(f"**Actual Output:** {row.get('Actual Output','—')}")
-                    st.divider()
+                    # Show actual output with diff highlighting vs expected
+                    exp = str(row.get("expected_output",""))
+                    act = str(row.get("Actual Output",""))
+                    label = f"Bias Pattern: {row.get('Bias Type','—')}"
+                    st.markdown(diff_card(exp, act, label), unsafe_allow_html=True)
+
+                    # Per-metric score + reason cards
+                    st.markdown("**Metric Breakdown**")
                     rc = st.columns(5)
                     for i,(mk,rk,sk) in enumerate(zip(METRIC_KEYS,REASON_KEYS,STATUS_KEYS)):
-                        v=float(row.get(mk,0)); fail=v>=THRESHOLD
+                        v    = float(row.get(mk,0))
+                        fail = v >= THRESHOLD
+                        reason = row.get(rk, "No issue detected.")
                         rc[i].markdown(
-                            f'<div style="background:{"#fee2e2" if fail else "#dcfce7"};'
+                            f'<div style="background:{"#fee2e2" if fail else "#f0fdf4"};'
                             f'border-radius:8px;padding:10px;border-top:3px solid {M_COLORS[i]}">'
                             f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">{mk}</div>'
-                            f'<div style="font-size:18px;font-weight:800;color:{"#dc2626" if fail else "#16a34a"}">{v:.2f}</div>'
-                            f'<div style="font-size:10px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"};margin:4px 0">{"FAIL" if fail else "PASS"}</div>'
-                            f'<div style="font-size:11px;color:#64748b;line-height:1.5">{row.get(rk,"—")}</div>'
+                            f'<div style="font-size:20px;font-weight:800;color:{"#dc2626" if fail else "#16a34a"}">{v:.2f}</div>'
+                            f'<div style="font-size:10px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"};margin:4px 0">{"● FAIL" if fail else "● PASS"}</div>'
+                            f'<div style="font-size:11px;color:#475569;line-height:1.5;margin-top:4px">{reason}</div>'
                             f'</div>',
                             unsafe_allow_html=True
                         )
         else:
-            st.success("No failures found with current filters.")
+            st.success("No failures found.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1073,9 +1133,8 @@ elif page == "records":
             st.markdown("**Expected Output**"); st.success(row.get("expected_output","—"))
             st.markdown("**Actual Output**");   st.warning(row.get("Actual Output","—"))
             exp=str(row.get("expected_output","")); act=str(row.get("Actual Output",""))
-            st.markdown("**Diff View** *(🟢 added · 🔴 removed)*")
-            st.markdown(f'<div class="diff-box">{highlight_diff(exp,act)}</div>',
-                        unsafe_allow_html=True)
+            st.markdown("**Diff View** *(🟡 yellow = extra words in Actual)*")
+            st.markdown(diff_card(exp, act), unsafe_allow_html=True)
 
         st.markdown("**Metric Scores**")
         mc=st.columns(5)
@@ -1161,9 +1220,11 @@ elif page == "report":
             st.markdown("**Actual Output**");   st.warning(row.get("Actual Output","—"))
             st.markdown("**Diff View**")
             st.markdown(
-                f'<div class="diff-box">'
-                f'{highlight_diff(str(row.get("expected_output","")),str(row.get("Actual Output","")))}'
-                f'</div>', unsafe_allow_html=True)
+                diff_card(
+                    str(row.get("expected_output","")),
+                    str(row.get("Actual Output",""))
+                ),
+                unsafe_allow_html=True)
 
         st.divider()
         ant_key=st.text_input("Anthropic API Key",type="password",
