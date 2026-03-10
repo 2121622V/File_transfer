@@ -23,27 +23,29 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Always-visible nav bar when sidebar is collapsed
-st.markdown("""
-<style>
-/* Keep sidebar toggle button always visible */
-button[data-testid="baseButton-headerNoPadding"] {
-    display: block !important;
-    visibility: visible !important;
-    opacity: 1 !important;
-}
-[data-testid="collapsedControl"] {
-    display: flex !important;
-    visibility: visible !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
 # ── CSS ───────────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 * { font-family: 'Inter', sans-serif; }
+
+/* ── Force sidebar always visible & toggle arrow always shown */
+section[data-testid="stSidebar"] {
+    display: flex !important;
+    visibility: visible !important;
+    min-width: 260px !important;
+    width: 260px !important;
+    transform: none !important;
+}
+[data-testid="collapsedControl"] {
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+}
+button[kind="header"] {
+    display: flex !important;
+    visibility: visible !important;
+}
 
 /* ── App background */
 .stApp { background-color: #f1f5f9; color: #0f172a; }
@@ -384,6 +386,16 @@ def page_header(title, sub, badge=None):
         unsafe_allow_html=True)
 
 # ── SIDEBAR ───────────────────────────────────────────────────────────────────
+# Force sidebar open on every load
+st.markdown("""
+<script>
+    const sidebar = window.parent.document.querySelector('[data-testid="stSidebar"]');
+    if (sidebar) sidebar.style.display = 'flex';
+    const collapsed = window.parent.document.querySelector('[data-testid="collapsedControl"]');
+    if (collapsed) collapsed.style.display = 'flex';
+</script>
+""", unsafe_allow_html=True)
+
 with st.sidebar:
     # Logo
     st.markdown("""
