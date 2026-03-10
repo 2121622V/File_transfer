@@ -284,20 +284,15 @@ async def call_llm(prompt, json_mode=True):
         return {} if json_mode else ""
 
 def highlight_diff(expected: str, actual: str) -> str:
-    exp_w = str(expected).split()
-    act_w = str(actual).split()
-    matcher = SequenceMatcher(None, exp_w, act_w)
+    """Highlight only words in actual output that are NOT in expected — shown in yellow."""
+    exp_words = set(str(expected).lower().split())
+    act_words  = str(actual).split()
     out = []
-    for op, i1, i2, j1, j2 in matcher.get_opcodes():
-        if op == "equal":
-            out.append(" ".join(act_w[j1:j2]))
-        elif op == "insert":
-            out += [f'<span class="diff-add">{w}</span>' for w in act_w[j1:j2]]
-        elif op == "delete":
-            out += [f'<span class="diff-del">{w}</span>' for w in exp_w[i1:i2]]
-        elif op == "replace":
-            out += [f'<span class="diff-del">{w}</span>' for w in exp_w[i1:i2]]
-            out += [f'<span class="diff-add">{w}</span>' for w in act_w[j1:j2]]
+    for w in act_words:
+        if w.lower().strip(".,!?;:\"'") not in exp_words:
+            out.append(f'<span style="background:#fef9c3;color:#92400e;padding:1px 4px;border-radius:3px;font-weight:600">{w}</span>')
+        else:
+            out.append(w)
     return " ".join(out)
 
 def style_status(val):
@@ -529,13 +524,13 @@ elif page == "augment":
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    with st.expander("⚙️ Testing Options — Limit rows/codes"):
+    with st.expander("⚙️ Testing Options — Limit rows/codes for faster testing"):
         c1,c2 = st.columns(2)
-        limit_rows  = c1.slider("Limit rows (0 = all)",  0, len(df),   0, key="aug_r")
-        limit_codes = c2.slider("Limit codes (0 = all)", 0, len(codes),0, key="aug_c")
+        limit_rows  = c1.number_input("Limit input rows (0 = all)",  min_value=0, max_value=len(df),   value=0, step=1, key="aug_r")
+        limit_codes = c2.number_input("Limit ontology codes (0 = all)", min_value=0, max_value=len(codes), value=0, step=1, key="aug_c")
 
-    rows_to_use  = df.head(limit_rows)    if limit_rows  > 0 else df
-    codes_to_use = codes[:limit_codes]    if limit_codes > 0 else codes
+    rows_to_use  = df.head(int(limit_rows))    if int(limit_rows)  > 0 else df
+    codes_to_use = codes[:int(limit_codes)]    if int(limit_codes) > 0 else codes
     total_calls  = len(rows_to_use) * len(codes_to_use)
 
     st.info(f"**{total_calls}** augmentation calls — {len(rows_to_use)} questions × {len(codes_to_use)} codes")
@@ -576,7 +571,6 @@ elif page == "augment":
                     "Bias Type":ont_map[code]["bias_pattern"],
                     "Augmented Roleplay":  res.get("roleplay_question",""),
                     "Augmented Storyline": res.get("storyline_question",""),
-                    "Severity Level":      int(res.get("severity_level",1)),
                 })
         progress.empty()
         if aug_rows:
@@ -613,7 +607,7 @@ elif page == "augment":
 
         st.dataframe(
             aug_df[["A_Code","Category","Subtype","original_question",
-                    "Augmented Roleplay","Augmented Storyline","Severity Level"]],
+                    "Augmented Roleplay","Augmented Storyline"]],
             use_container_width=True, height=360)
 
 
@@ -680,30 +674,40 @@ elif page == "generate":
             use_container_width=True, height=320)
 
         st.divider()
-        section("DIFF VIEWER — EXPECTED vs ACTUAL")
-        st.caption("🟢 Green = words added to actual   |   🔴 Red strikethrough = words removed from expected")
+        section("DIFF VIEWER — EXTRA WORDS IN ACTUAL vs EXPECTED")
+        st.caption("🟡 Yellow highlighted words appear in Actual Output but NOT in Expected Output")
 
-        col1,col2 = st.columns([1,2])
+        col1, col2 = st.columns([1, 2])
         with col1:
-            idx = st.number_input("Select row", min_value=0,
-                                   max_value=len(gen_df)-1, value=0, step=1)
-            cat_f = st.selectbox("Filter Category",
-                                  ["All"]+sorted(gen_df["Category"].dropna().unique().tolist()))
-        fdf = gen_df if cat_f=="All" else gen_df[gen_df["Category"]==cat_f]
-        row = gen_df.iloc[int(idx)]
-        exp = str(row.get("expected_output",""))
-        act = str(row.get("Actual Output",""))
+            cat_f = st.selectbox(
+                "Filter by Category",
+                ["All"] + sorted(gen_df["Category"].dropna().unique().tolist()),
+                key="gen_cat"
+            )
+            fdf = gen_df if cat_f == "All" else gen_df[gen_df["Category"] == cat_f]
+            idx = st.number_input(
+                f"Row index (0 – {len(fdf)-1})",
+                min_value=0, max_value=max(len(fdf)-1, 0),
+                value=0, step=1, key="gen_idx"
+            )
 
-        with col2:
-            st.markdown(
-                f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px">'
-                f'<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:8px">'
-                f'{row.get("A_Code","—")} · {row.get("Subtype","—")}</div>'
-                f'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Expected:</div>'
-                f'<div style="font-size:13px;color:#334155;margin-bottom:12px;line-height:1.6">{exp}</div>'
-                f'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">Actual (diff):</div>'
-                f'<div class="diff-box">{highlight_diff(exp,act)}</div></div>',
-                unsafe_allow_html=True)
+        if len(fdf) > 0:
+            row = fdf.iloc[int(idx)]
+            exp = str(row.get("expected_output", ""))
+            act = str(row.get("Actual Output", ""))
+            with col2:
+                st.markdown(
+                    f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:16px;margin-bottom:12px">'
+                    f'<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:10px">'
+                    f'{row.get("A_Code","—")} · {row.get("Subtype","—")} · {row.get("Category","—")}</div>'
+                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600">EXPECTED OUTPUT</div>'
+                    f'<div style="font-size:13px;color:#334155;margin-bottom:14px;line-height:1.7;'
+                    f'background:#f0fdf4;padding:10px;border-radius:6px;border-left:3px solid #16a34a">{exp}</div>'
+                    f'<div style="font-size:11px;color:#94a3b8;margin-bottom:4px;font-weight:600">ACTUAL OUTPUT <span style="color:#92400e">(🟡 = extra words not in expected)</span></div>'
+                    f'<div class="diff-box">{highlight_diff(exp, act)}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
 
         # Bulk divergence table
         st.divider()
@@ -836,14 +840,42 @@ elif page == "evaluate":
         fig_hm.update_traces(textfont_size=11, textfont_color="#0f172a")
         st.plotly_chart(fig_hm,use_container_width=True)
 
-        section("EVALUATION TABLE")
-        disp=["id","A_Code","Category","Subtype","Status"]+METRIC_KEYS
+        section("EVALUATION TABLE — SCORES + REASONS + BIAS PATTERN")
+        disp=["id","A_Code","Category","Subtype","Bias Type","Status"] + METRIC_KEYS + REASON_KEYS
         disp=[c for c in disp if c in eval_df.columns]
         st.dataframe(
             eval_df[disp].style
             .applymap(style_status,subset=["Status"])
             .applymap(style_metric,subset=METRIC_KEYS),
-            use_container_width=True, height=380)
+            use_container_width=True, height=420)
+
+        st.divider()
+        section("FAILURE REASONS DETAIL")
+        fail_only = eval_df[eval_df["Status"]=="Fail"] if "Status" in eval_df.columns else eval_df
+        if len(fail_only) > 0:
+            for _, row in fail_only.head(20).iterrows():
+                with st.expander(
+                    f"❌  {row.get('A_Code','—')} · {row.get('Subtype','—')} — {row.get('Category','—')}",
+                    expanded=False
+                ):
+                    st.markdown(f"**Bias Pattern:** `{row.get('Bias Type','—')}`")
+                    st.markdown(f"**Actual Output:** {row.get('Actual Output','—')}")
+                    st.divider()
+                    rc = st.columns(5)
+                    for i,(mk,rk,sk) in enumerate(zip(METRIC_KEYS,REASON_KEYS,STATUS_KEYS)):
+                        v=float(row.get(mk,0)); fail=v>=THRESHOLD
+                        rc[i].markdown(
+                            f'<div style="background:{"#fee2e2" if fail else "#dcfce7"};'
+                            f'border-radius:8px;padding:10px;border-top:3px solid {M_COLORS[i]}">'
+                            f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">{mk}</div>'
+                            f'<div style="font-size:18px;font-weight:800;color:{"#dc2626" if fail else "#16a34a"}">{v:.2f}</div>'
+                            f'<div style="font-size:10px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"};margin:4px 0">{"FAIL" if fail else "PASS"}</div>'
+                            f'<div style="font-size:11px;color:#64748b;line-height:1.5">{row.get(rk,"—")}</div>'
+                            f'</div>',
+                            unsafe_allow_html=True
+                        )
+        else:
+            st.success("No failures found with current filters.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -941,21 +973,36 @@ elif page == "analysis":
     st.plotly_chart(fig_t,use_container_width=True)
 
     st.divider()
-    section("SUBTYPE RISK TABLE")
-    sub_avg=eval_df.groupby("Subtype")[METRIC_KEYS].mean()
-    sub_avg["Max Score"]=sub_avg.max(axis=1)
-    sub_avg=sub_avg.sort_values("Max Score",ascending=False)
-    def color_cell(val):
-        try:
-            v=float(val)
-            if v>=0.4: return "background-color:#fee2e2;color:#dc2626"
-            if v>=0.2: return "background-color:#fef9c3;color:#ca8a04"
-            return "background-color:#dcfce7;color:#16a34a"
-        except: return ""
-    st.dataframe(sub_avg.style.applymap(color_cell),
-                 use_container_width=True, height=360)
+    section("COMPLETE RESULTS TABLE — SCORES + REASONS + BIAS PATTERN")
+    full_cols = (["id","A_Code","Category","Subtype","Bias Type","Status","Severity Level"]
+                 + METRIC_KEYS + REASON_KEYS
+                 + ["original_question","Augmented Roleplay","Augmented Storyline",
+                    "expected_output","Actual Output"])
+    full_cols = [c for c in full_cols if c in eval_df.columns]
+    st.dataframe(
+        eval_df[full_cols].style
+        .applymap(style_status, subset=["Status"])
+        .applymap(style_metric, subset=METRIC_KEYS),
+        use_container_width=True, height=420)
 
     st.divider()
+    section("TOP FAILING BIAS PATTERNS")
+    if "Bias Type" in eval_df.columns:
+        bp = (eval_df[eval_df["Status"]=="Fail"]
+              .groupby("Bias Type").size()
+              .sort_values(ascending=False).head(10)
+              .reset_index(name="Failures"))
+        if len(bp):
+            fig_bp = go.Figure(go.Bar(
+                x=bp["Failures"], y=bp["Bias Type"], orientation="h",
+                marker_color="#ef4444",
+                text=bp["Failures"], textposition="outside"))
+            fig_bp.update_layout(**PLOT_BASE, height=340,
+                                  xaxis_title="Failure Count")
+            st.plotly_chart(fig_bp, use_container_width=True)
+
+    st.divider()
+    section("DOWNLOAD")
     st.download_button(
         label="⬇ Download bias_results.xlsx",
         data=open(OUTPUT_DIR/"bias_results.xlsx","rb").read(),
