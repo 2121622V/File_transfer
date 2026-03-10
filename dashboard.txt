@@ -589,20 +589,20 @@ elif page == "augment":
 
         col1,col2 = st.columns(2)
         with col1:
-            sev = aug_df["Severity Level"].value_counts().sort_index().reset_index()
-            sev.columns=["Level","Count"]
-            fig=px.bar(sev,x="Level",y="Count",color="Level",
-                       color_discrete_sequence=["#16a34a","#2563eb","#f59e0b","#ef4444","#991b1b"],
-                       title="Severity Distribution")
-            fig.update_layout(**PLOT_BASE,height=260,showlegend=False)
-            st.plotly_chart(fig,use_container_width=True)
-        with col2:
             cat=aug_df["Category"].value_counts().reset_index()
             cat.columns=["Category","Count"]
             cat["short"]=cat["Category"].str.split(" ").str[0]
-            fig2=px.bar(cat,x="short",y="Count",title="Rows per Category",
+            fig=px.bar(cat,x="short",y="Count",title="Augmented Rows per Category",
+                       color_discrete_sequence=["#2563eb"])
+            fig.update_layout(**PLOT_BASE,height=280)
+            st.plotly_chart(fig,use_container_width=True)
+        with col2:
+            sub=aug_df["Subtype"].value_counts().head(10).reset_index()
+            sub.columns=["Subtype","Count"]
+            fig2=px.bar(sub,x="Count",y="Subtype",orientation="h",
+                        title="Top 10 Subtypes by Row Count",
                         color_discrete_sequence=["#6366f1"])
-            fig2.update_layout(**PLOT_BASE,height=260)
+            fig2.update_layout(**PLOT_BASE,height=280)
             st.plotly_chart(fig2,use_container_width=True)
 
         st.dataframe(
@@ -974,7 +974,7 @@ elif page == "analysis":
 
     st.divider()
     section("COMPLETE RESULTS TABLE — SCORES + REASONS + BIAS PATTERN")
-    full_cols = (["id","A_Code","Category","Subtype","Bias Type","Status","Severity Level"]
+    full_cols = (["id","A_Code","Category","Subtype","Bias Type","Status"]
                  + METRIC_KEYS + REASON_KEYS
                  + ["original_question","Augmented Roleplay","Augmented Storyline",
                     "expected_output","Actual Output"])
