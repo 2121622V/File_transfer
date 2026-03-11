@@ -486,138 +486,200 @@ if page == "upload":
     page_header("📂 Upload Input",
                 "Upload your dataset, ontology and prompts to begin the pipeline")
 
-    # ── Row 1: three upload boxes side by side ────────────────────────────────
-    col1, col2, col3 = st.columns(3, gap="large")
-
-    # ── Input Dataset ─────────────────────────────────────────────────────────
-    with col1:
-        st.markdown("#### 📄 Input Dataset")
-        st.caption("Excel or CSV · requires `original_question` & `expected_output` columns")
-        uploaded = st.file_uploader("Upload input file", type=["xlsx","csv"],
-                                    label_visibility="collapsed", key="inp_up")
-        if uploaded:
-            try:
-                df = (pd.read_excel(uploaded, engine="openpyxl")
-                      if uploaded.name.endswith(".xlsx") else pd.read_csv(uploaded))
-                st.session_state.input_df       = df
-                st.session_state.input_filename = uploaded.name
-                st.session_state.input_bytes    = uploaded.getvalue()
-                st.success(f"✅ {len(df)} rows · {len(df.columns)} columns")
-            except Exception as e:
-                st.error(f"Failed: {e}")
-        elif (st.session_state.get("input_df") is not None):
-            st.caption(f"✓ Loaded: `{st.session_state.get('input_filename','dataset')}`")
-
-    # ── Ontology ──────────────────────────────────────────────────────────────
-    with col2:
-        st.markdown("#### 🗂 Ontology")
-        st.caption("ontology.yaml · auto-detected from project folder if not uploaded")
-        ont_up = st.file_uploader("Upload ontology.yaml", type=["yaml","yml"],
-                                  label_visibility="collapsed", key="ont")
-        if ont_up:
-            raw = ont_up.read()
-            st.session_state.ontology       = yaml.safe_load(raw)
-            st.session_state.ont_bytes      = raw
-            st.session_state.ont_filename   = ont_up.name
-            st.success("✅ Ontology loaded")
-        elif (BASE_DIR/"ontology.yaml").exists() and st.session_state.ontology is None:
-            raw = open(BASE_DIR/"ontology.yaml","rb").read()
-            st.session_state.ontology     = yaml.safe_load(raw)
-            st.session_state.ont_bytes    = raw
-            st.session_state.ont_filename = "ontology.yaml"
-            st.caption("✓ Auto-detected from project folder")
-        elif st.session_state.ontology is not None:
-            st.caption(f"✓ Loaded: `{st.session_state.get('ont_filename','ontology.yaml')}`")
-
-    # ── Prompts ───────────────────────────────────────────────────────────────
-    with col3:
-        st.markdown("#### 📝 Prompts")
-        st.caption("prompts.yaml · auto-detected from project folder if not uploaded")
-        prm_up = st.file_uploader("Upload prompts.yaml", type=["yaml","yml"],
-                                  label_visibility="collapsed", key="prm")
-        if prm_up:
-            raw = prm_up.read()
-            st.session_state.prompts       = yaml.safe_load(raw)["prompts"]
-            st.session_state.prm_bytes     = raw
-            st.session_state.prm_filename  = prm_up.name
-            st.success("✅ Prompts loaded")
-        elif (BASE_DIR/"prompts.yaml").exists() and st.session_state.prompts is None:
-            raw = open(BASE_DIR/"prompts.yaml","rb").read()
-            st.session_state.prompts      = yaml.safe_load(raw)["prompts"]
-            st.session_state.prm_bytes    = raw
-            st.session_state.prm_filename = "prompts.yaml"
-            st.caption("✓ Auto-detected from project folder")
-        elif st.session_state.prompts is not None:
-            st.caption(f"✓ Loaded: `{st.session_state.get('prm_filename','prompts.yaml')}`")
-
-    st.divider()
-
-    # ── File viewer & downloader ──────────────────────────────────────────────
-    files_loaded = {
-        "Input Dataset":  (st.session_state.get("input_bytes"),
-                           st.session_state.get("input_filename","dataset.xlsx"),
-                           "input_df"),
-        "Ontology":       (st.session_state.get("ont_bytes"),
-                           st.session_state.get("ont_filename","ontology.yaml"),
-                           None),
-        "Prompts":        (st.session_state.get("prm_bytes"),
-                           st.session_state.get("prm_filename","prompts.yaml"),
-                           None),
+    st.markdown("""
+    <style>
+    /* Make file uploader full width and bigger */
+    [data-testid="stFileUploader"] {
+        width: 100% !important;
     }
+    [data-testid="stFileUploader"] section {
+        padding: 18px 20px !important;
+        border: 2px dashed #cbd5e1 !important;
+        border-radius: 10px !important;
+        background: #f8fafc !important;
+        transition: border-color 0.2s;
+    }
+    [data-testid="stFileUploader"] section:hover {
+        border-color: #2563eb !important;
+        background: #eff6ff !important;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] {
+        font-size: 14px !important;
+        color: #334155 !important;
+    }
+    [data-testid="stFileUploaderDropzoneInstructions"] span {
+        color: #2563eb !important;
+        font-weight: 600 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-    any_loaded = any(v[0] is not None for v in files_loaded.values())
-    if any_loaded:
-        section("LOADED FILES — VIEW & DOWNLOAD")
-        for file_label, (fbytes, fname, df_key) in files_loaded.items():
-            if fbytes is None:
-                continue
-            with st.expander(f"📄 {file_label} — `{fname}`", expanded=False):
-                dl_col, _ = st.columns([1, 4])
+    def file_row(label, icon, desc, uploader_key, file_types,
+                 session_df_key, session_bytes_key, session_fname_key,
+                 is_yaml=False, yaml_sub_key=None):
+        """Render one full-width upload row with view/download on the right."""
+        st.markdown(
+            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+            f'padding:16px 20px;margin-bottom:14px">'
+            f'<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:2px">'
+            f'{icon} {label}</div>'
+            f'<div style="font-size:11px;color:#94a3b8;margin-bottom:12px">{desc}</div>',
+            unsafe_allow_html=True
+        )
+
+        left, right = st.columns([3, 1])
+
+        with left:
+            upl = st.file_uploader(
+                f"Browse {label}",
+                type=file_types,
+                key=uploader_key,
+                label_visibility="collapsed"
+            )
+
+        # Process upload
+        if upl:
+            raw = upl.read()
+            st.session_state[session_bytes_key] = raw
+            st.session_state[session_fname_key] = upl.name
+            if is_yaml:
+                parsed = yaml.safe_load(raw)
+                if yaml_sub_key:
+                    st.session_state[session_df_key] = parsed[yaml_sub_key]
+                else:
+                    st.session_state[session_df_key] = parsed
+            else:
+                import io
+                try:
+                    df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+                          if upl.name.endswith(".xlsx")
+                          else pd.read_csv(io.BytesIO(raw)))
+                    st.session_state[session_df_key] = df
+                except Exception as e:
+                    with right:
+                        st.error(f"Error: {e}")
+
+        # Auto-detect from project folder for YAML
+        if (is_yaml and st.session_state[session_df_key] is None):
+            candidates = [BASE_DIR / f"{uploader_key.split('_')[0]}.yaml",
+                          BASE_DIR / f"{uploader_key.split('_')[0]}.yml"]
+            for path in candidates:
+                if path.exists():
+                    raw = open(path, "rb").read()
+                    parsed = yaml.safe_load(raw)
+                    st.session_state[session_bytes_key] = raw
+                    st.session_state[session_fname_key] = path.name
+                    st.session_state[session_df_key] = parsed[yaml_sub_key] if yaml_sub_key else parsed
+                    break
+
+        # Right side: status + view + download
+        with right:
+            fname  = st.session_state.get(session_fname_key)
+            fbytes = st.session_state.get(session_bytes_key)
+            if fbytes and fname:
+                st.markdown(
+                    f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
+                    f'padding:8px 12px;font-size:12px;color:#15803d;font-weight:600;margin-bottom:8px">'
+                    f'✅ {fname}</div>',
+                    unsafe_allow_html=True
+                )
                 mime = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         if fname.endswith(".xlsx") else
                         "text/csv" if fname.endswith(".csv") else "text/plain")
-                dl_col.download_button(
-                    label=f"⬇ Download {fname}",
+                st.download_button(
+                    label="⬇ Download",
                     data=fbytes,
                     file_name=fname,
                     mime=mime,
-                    key=f"dl_{file_label}"
+                    key=f"dl_{uploader_key}",
+                    use_container_width=True
                 )
-                # Show content
-                if fname.endswith((".xlsx",".csv")):
+            else:
+                st.markdown(
+                    '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                    'padding:8px 12px;font-size:12px;color:#94a3b8">No file loaded yet</div>',
+                    unsafe_allow_html=True
+                )
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        # View section — full width below upload row
+        fbytes = st.session_state.get(session_bytes_key)
+        fname  = st.session_state.get(session_fname_key)
+        if fbytes and fname:
+            with st.expander(f"👁 View {label} — `{fname}`", expanded=False):
+                if fname.endswith((".xlsx", ".csv")):
+                    import io
                     try:
-                        import io
-                        preview_df = (pd.read_excel(io.BytesIO(fbytes), engine="openpyxl")
-                                      if fname.endswith(".xlsx")
-                                      else pd.read_csv(io.BytesIO(fbytes)))
-                        st.dataframe(preview_df, use_container_width=True, height=300)
+                        preview = (pd.read_excel(io.BytesIO(fbytes), engine="openpyxl")
+                                   if fname.endswith(".xlsx")
+                                   else pd.read_csv(io.BytesIO(fbytes)))
+                        st.dataframe(preview, use_container_width=True, height=280)
                     except Exception as e:
-                        st.error(f"Preview failed: {e}")
+                        st.error(f"Preview error: {e}")
                 else:
-                    # YAML — show as code
-                    st.code(fbytes.decode("utf-8","ignore"), language="yaml")
+                    st.code(fbytes.decode("utf-8", "ignore"), language="yaml")
 
-    st.divider()
+    # ── File 1: Input Dataset ─────────────────────────────────────────────────
+    file_row(
+        label="Input Dataset",
+        icon="📄",
+        desc="Excel or CSV file · must contain original_question and expected_output columns",
+        uploader_key="inp_up",
+        file_types=["xlsx","csv"],
+        session_df_key="input_df",
+        session_bytes_key="input_bytes",
+        session_fname_key="input_filename",
+        is_yaml=False,
+    )
 
-    # ── Summary metrics ───────────────────────────────────────────────────────
-    if st.session_state.input_df is not None or st.session_state.ontology is not None:
+    # ── File 2: Ontology ──────────────────────────────────────────────────────
+    file_row(
+        label="Ontology",
+        icon="🗂",
+        desc="ontology.yaml · defines 9 bias categories and 29 subtypes · auto-detected if in project folder",
+        uploader_key="ontology_up",
+        file_types=["yaml","yml"],
+        session_df_key="ontology",
+        session_bytes_key="ont_bytes",
+        session_fname_key="ont_filename",
+        is_yaml=True,
+        yaml_sub_key=None,
+    )
+
+    # ── File 3: Prompts ───────────────────────────────────────────────────────
+    file_row(
+        label="Prompts",
+        icon="📝",
+        desc="prompts.yaml · contains augmentation, assistant_response and evaluation prompts · auto-detected if in project folder",
+        uploader_key="prompts_up",
+        file_types=["yaml","yml"],
+        session_df_key="prompts",
+        session_bytes_key="prm_bytes",
+        session_fname_key="prm_filename",
+        is_yaml=True,
+        yaml_sub_key="prompts",
+    )
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    ont_map = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
+    q_count = len(st.session_state.input_df) if st.session_state.input_df is not None else 0
+    if q_count or ont_map:
+        st.divider()
         section("PIPELINE SUMMARY")
         m1, m2, m3, m4 = st.columns(4)
-        ont_map = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
-        q_count = len(st.session_state.input_df) if st.session_state.input_df is not None else 0
-        m1.metric("Input Questions",  q_count)
-        m2.metric("Ontology Categories", len(st.session_state.ontology.get("ontology",[])) if st.session_state.ontology else 0)
-        m3.metric("Ontology Subtypes",   len(ont_map))
-        m4.metric("Total Aug. Calls",    q_count * len(ont_map) if ont_map else 0)
+        m1.metric("Input Questions",      q_count)
+        m2.metric("Bias Categories",      len(st.session_state.ontology.get("ontology",[])) if st.session_state.ontology else 0)
+        m3.metric("Ontology Subtypes",    len(ont_map))
+        m4.metric("Total Aug. Calls",     q_count * len(ont_map) if ont_map else 0)
 
-        missing_cols = []
         if st.session_state.input_df is not None:
-            missing_cols = [c for c in ["original_question","expected_output"]
-                            if c not in st.session_state.input_df.columns]
-        if missing_cols:
-            st.error(f"❌ Missing required columns in dataset: {missing_cols}")
-        elif st.session_state.input_df is not None:
-            st.success("✅ All files loaded. Proceed to **Augmentation** from the sidebar.")
+            missing = [c for c in ["original_question","expected_output"]
+                       if c not in st.session_state.input_df.columns]
+            if missing:
+                st.error(f"❌ Missing required columns: {missing}")
+            else:
+                st.success("✅ All files ready — proceed to **Augmentation** from the sidebar.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
