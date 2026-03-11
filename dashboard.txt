@@ -130,6 +130,42 @@ div[data-testid="stButton"] button[kind="primary"]:hover {
     background: #15803d !important;
 }
 
+/* ═══ FIX: Make search/text inputs visible ═══ */
+.stTextInput > div > div > input {
+    background: white !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+}
+.stTextInput > div > div > input:focus {
+    border-color: #2563eb !important;
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.15) !important;
+}
+.stTextInput > label {
+    color: #334155 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+}
+.stSelectbox > div > div {
+    background: white !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+}
+.stSelectbox > label {
+    color: #334155 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+}
+.stNumberInput > div > div > input {
+    background: white !important;
+    color: #0f172a !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+}
+
 /* ═══ METRICS ═══ */
 div[data-testid="metric-container"] {
     background: white; border: 1px solid #e2e8f0;
@@ -315,11 +351,48 @@ def metric_pill(label, value, color):
         f'<div style="font-size:10px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"}">{"● FAIL" if fail else "● PASS"}</div></div>')
 
 def highlight_diff(expected, actual):
+    """Highlight words in actual that are NOT in expected (yellow)."""
     exp_words = set(w.lower().strip(".,!?;:\"'") for w in str(expected).split())
     out = []
     for w in str(actual).split():
         if w.lower().strip(".,!?;:\"'") not in exp_words:
             out.append(f'<span style="background:#fef08a;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:700">{w}</span>')
+        else:
+            out.append(w)
+    return " ".join(out)
+
+def highlight_bias_in_output(actual_text, failed_metrics, reason_dict):
+    """Highlight bias-related phrases in actual output based on failed metric reasons."""
+    text = str(actual_text)
+    # Collect bias keywords from failure reasons
+    bias_keywords = set()
+    for m in failed_metrics:
+        mi = METRIC_KEYS.index(m)
+        rk = REASON_KEYS[mi]
+        reason = str(reason_dict.get(rk, ""))
+        # Extract meaningful words from reason (skip stop words)
+        stop = {"the","a","an","is","was","are","were","be","been","being","have","has","had",
+                "do","does","did","will","would","could","should","may","might","shall","can",
+                "for","and","nor","but","or","yet","so","in","on","at","to","of","with","by",
+                "from","as","into","through","during","before","after","above","below","between",
+                "out","off","over","under","again","further","then","once","no","not","this","that",
+                "these","those","it","its","i","me","my","we","our","you","your","he","she","they",
+                "them","their","what","which","who","whom","how","than","too","very","just","about"}
+        for w in reason.lower().split():
+            clean = w.strip(".,!?;:\"'()[]")
+            if len(clean) > 3 and clean not in stop:
+                bias_keywords.add(clean)
+
+    if not bias_keywords:
+        return text
+
+    # Highlight matching words in actual output
+    words = text.split()
+    out = []
+    for w in words:
+        clean = w.lower().strip(".,!?;:\"'()[]")
+        if clean in bias_keywords:
+            out.append(f'<span style="background:#fecaca;color:#991b1b;padding:1px 5px;border-radius:3px;font-weight:700;border-bottom:2px solid #ef4444">{w}</span>')
         else:
             out.append(w)
     return " ".join(out)
@@ -861,19 +934,19 @@ elif page == "evaluate":
 
         st.divider()
 
-        # ── 4 FILTERS: Search | Status | Category | Metric + Metric Status ──
+        # ── FILTERS — single row ──
         section_label("EVALUATION TABLE")
-        fc1, fc2, fc3, fc4, fc5 = st.columns([2.5, 0.8, 1, 1.2, 0.8])
-        with fc1: search = st.text_input("🔍 Search", "", key="eval_search")
+        fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([2, 0.7, 1, 1, 0.7, 0.8])
+        with fc1: search = st.text_input("🔍 Search", "", key="eval_search", placeholder="Type to search…")
         with fc2: status_f = st.selectbox("Status", ["All","Pass","Fail"], key="eval_sf")
         with fc3: cat_f = st.selectbox("Category", ["All"]+sorted(edf["Category"].dropna().unique().tolist()), key="eval_cf")
         with fc4: metric_f = st.selectbox("Metric", ["All"]+METRIC_KEYS, key="eval_mf")
         with fc5: metric_status_f = st.selectbox("Metric Status", ["All","Pass","Fail"], key="eval_msf")
-
-        _, dl_col = st.columns([3,1])
-        with dl_col:
+        with fc6:
+            st.markdown("<div style='margin-top:24px'>", unsafe_allow_html=True)
             green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_eval")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         # Apply all filters
         fdf = edf.copy()
@@ -905,7 +978,7 @@ elif page == "evaluate":
             .applymap(style_metric, subset=[m for m in METRIC_KEYS if m in fdf.columns]),
             use_container_width=True, height=fit_height(fdf))
 
-        # ── FAILURE REASONS ──
+        # ── FAILURE REASONS — BIAS HIGHLIGHTED IN ACTUAL OUTPUT ──
         st.divider()
         section_label("FAILURE REASONS — BIAS HIGHLIGHTED")
         fail_only = fdf[fdf["Status"]=="Fail"]
@@ -917,7 +990,30 @@ elif page == "evaluate":
                     f"{row.get('Category','—')}  |  {len(fn)} metric(s) failed", expanded=False):
 
                     st.markdown(f"**Bias Pattern:** `{row.get('Bias Type','—')}`")
-                    side_by_side_diff(str(row.get("expected_output","")), str(row.get("Actual Output","")))
+
+                    # Actual Output with bias keywords highlighted in red
+                    act_text = str(row.get("Actual Output",""))
+                    reason_dict = {rk: row.get(rk,"") for rk in REASON_KEYS}
+                    bias_html = highlight_bias_in_output(act_text, fn, reason_dict)
+
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#991b1b;'
+                        'text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'
+                        '🔴 Actual Output — Bias Keywords Highlighted</div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;'
+                        f'padding:14px 16px;font-size:13px;line-height:1.9;color:#334155;min-height:60px">'
+                        f'{bias_html}</div>',
+                        unsafe_allow_html=True)
+
+                    # Legend
+                    st.markdown(
+                        '<div style="margin-top:6px;font-size:11px;color:#64748b">'
+                        '🔴 <span style="background:#fecaca;color:#991b1b;padding:1px 6px;border-radius:3px;'
+                        'font-weight:700;font-size:11px;border-bottom:2px solid #ef4444">Red</span> = '
+                        'bias-related words detected from failure reasons</div>',
+                        unsafe_allow_html=True)
 
                     st.markdown("---")
                     st.markdown("**Metric Breakdown**")
