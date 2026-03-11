@@ -545,22 +545,24 @@ if page == "upload":
 
     def upload_section(title, icon, ext, description, file_key, data_key, bytes_key, fname_key,
                        is_yaml=False, yaml_sub=None, auto_file=None):
-        """Unified upload section with table preview and download."""
+        """Unified upload section with table preview and download at top right."""
         st.markdown(f'<div class="upload-card">', unsafe_allow_html=True)
         
-        # Header row
+        # Header row with title and status
         h_col1, h_col2, h_col3 = st.columns([2, 1, 1])
         with h_col1:
             st.markdown(f'<div style="font-size:15px;font-weight:700;color:#0f172a">{icon} {title}</div>', unsafe_allow_html=True)
         with h_col2:
             st.markdown(f'<div style="font-size:11px;color:#94a3b8;background:#f1f5f9;padding:4px 12px;border-radius:20px;display:inline-block">{ext}</div>', unsafe_allow_html=True)
         with h_col3:
-            if st.session_state[data_key] is not None and st.session_state[fname_key]:
+            fbytes = st.session_state.get(bytes_key)
+            fname  = st.session_state.get(fname_key)
+            if st.session_state[data_key] is not None and fname:
                 st.markdown(
                     f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
                     f'padding:6px 12px;display:inline-flex;align-items:center;gap:6px">'
                     f'<span style="color:#16a34a;font-size:15px">✓</span>'
-                    f'<span style="font-size:11px;color:#15803d;font-weight:600">{st.session_state[fname_key]}</span></div>',
+                    f'<span style="font-size:11px;color:#15803d;font-weight:600">{fname}</span></div>',
                     unsafe_allow_html=True)
             else:
                 st.markdown(
@@ -602,26 +604,35 @@ if page == "upload":
             fbytes = st.session_state.get(bytes_key)
             fname  = st.session_state.get(fname_key)
             
-            # Display table
+            # Preview header with download button aligned to top right
+            preview_h1, preview_h2 = st.columns([3, 1])
+            with preview_h1:
+                if fname.endswith((".xlsx",".csv")):
+                    try:
+                        pv = (pd.read_excel(io.BytesIO(fbytes), engine="openpyxl")
+                              if fname.endswith(".xlsx") else pd.read_csv(io.BytesIO(fbytes)))
+                        st.markdown(f'<strong style="font-size:12px;color:#334155">Preview ({len(pv)} rows)</strong>', unsafe_allow_html=True)
+                    except:
+                        st.markdown(f'<strong style="font-size:12px;color:#334155">Preview</strong>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<strong style="font-size:12px;color:#334155">Content Preview</strong>', unsafe_allow_html=True)
+            
+            with preview_h2:
+                if fbytes and fname:
+                    mime = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            if fname.endswith(".xlsx") else "text/csv" if fname.endswith(".csv") else "text/plain")
+                    green_download("⬇ Download", fbytes, fname, mime, key=f"dl_{file_key}")
+            
+            # Display table or code
             if fname.endswith((".xlsx",".csv")):
                 try:
                     pv = (pd.read_excel(io.BytesIO(fbytes), engine="openpyxl")
                           if fname.endswith(".xlsx") else pd.read_csv(io.BytesIO(fbytes)))
-                    st.markdown(f'<div style="margin-top:12px"><strong style="font-size:12px;color:#334155">Preview ({len(pv)} rows)</strong></div>', unsafe_allow_html=True)
                     st.dataframe(pv, use_container_width=True, height=fit_height(pv, max_h=300))
                 except Exception as e:
                     st.error(f"Preview error: {e}")
             else:
-                st.markdown(f'<div style="margin-top:12px"><strong style="font-size:12px;color:#334155">Content Preview</strong></div>', unsafe_allow_html=True)
                 st.code(fbytes.decode("utf-8","ignore")[:500], language="yaml")
-            
-            # Download button
-            if fbytes and fname:
-                mime = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        if fname.endswith(".xlsx") else "text/csv" if fname.endswith(".csv") else "text/plain")
-                col1, col2, col3 = st.columns([2, 1, 1])
-                with col3:
-                    green_download("⬇ Download", fbytes, fname, mime, key=f"dl_{file_key}")
         
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -713,49 +724,84 @@ elif page == "augment":
                 if val and i not in st.session_state.sel_questions: st.session_state.sel_questions.append(i)
                 elif not val and i in st.session_state.sel_questions: st.session_state.sel_questions.remove(i)
 
-    # ── ONTOLOGY CATEGORIES COLUMN ──
+    # ── ONTOLOGY SUBTYPES COLUMN ──
     with col_o:
-        st.markdown("**🗂 Ontology Categories**")
-        o_search = st.text_input("🔍 Search categories", "", key="o_search")
+        st.markdown("**🗂 Ontology Codes by Category**")
+        o_search = st.text_input("🔍 Search codes", "", key="o_search")
         
-        # Master "Select All Categories"
-        all_c = len(st.session_state.sel_categories) == len(categories) and len(categories) > 0
-        mc = st.checkbox("Select All Categories", value=all_c, key="master_c")
-        if mc and not all_c:
-            st.session_state.sel_categories = list(categories); st.rerun()
-        elif not mc and all_c:
-            st.session_state.sel_categories = []; st.rerun()
-        st.caption(f"{len(st.session_state.sel_categories)} / {len(categories)} selected")
+        # Get all codes with their categories
+        code_list = []  # List of (code, category, subtype)
+        for cat in sorted(ont_hier.keys()):
+            for code in ont_hier[cat]:
+                code_list.append((code, cat, ont_map[code]["subtype"]))
+        
+        # Master "Select All" checkbox
+        all_codes = len(st.session_state.sel_codes) == len(code_list) and len(code_list) > 0
+        mc = st.checkbox("Select All Codes", value=all_codes, key="master_codes")
+        if mc and not all_codes:
+            st.session_state.sel_codes = [c[0] for c in code_list]; st.rerun()
+        elif not mc and all_codes:
+            st.session_state.sel_codes = []; st.rerun()
+        st.caption(f"{len(st.session_state.sel_codes)} / {len(code_list)} selected")
         
         with st.container(height=280):
-            if not ont_hier:
-                st.info("No ontology loaded.")
-            else:
-                for cat in sorted(categories):
-                    if o_search.lower() not in cat.lower():
+            # Build hierarchical structure
+            for cat in sorted(ont_hier.keys()):
+                if o_search.lower() and o_search.lower() not in cat.lower():
+                    # Check if any subcodes match
+                    codes_in_cat = ont_hier[cat]
+                    matching = [c for c in codes_in_cat if o_search.lower() in c.lower() or o_search.lower() in ont_map[c]["subtype"].lower()]
+                    if not matching:
                         continue
+                
+                # Category checkbox
+                codes_in_cat = ont_hier[cat]
+                filtered_codes = [c for c in codes_in_cat if not o_search or o_search.lower() in c.lower() or o_search.lower() in ont_map[c]["subtype"].lower()]
+                
+                all_in_cat = all(c in st.session_state.sel_codes for c in codes_in_cat)
+                partial_in_cat = any(c in st.session_state.sel_codes for c in codes_in_cat)
+                
+                cat_checked = st.checkbox(
+                    f"📁 {cat}",
+                    value=all_in_cat,
+                    key=f"cat_check_{cat}"
+                )
+                
+                # Handle category selection
+                if cat_checked and not all_in_cat:
+                    # Select all codes in this category
+                    for code in codes_in_cat:
+                        if code not in st.session_state.sel_codes:
+                            st.session_state.sel_codes.append(code)
+                    st.rerun()
+                elif not cat_checked and all_in_cat:
+                    # Deselect all codes in this category
+                    st.session_state.sel_codes = [c for c in st.session_state.sel_codes if c not in codes_in_cat]
+                    st.rerun()
+                
+                # Show subcodes
+                for code in filtered_codes:
+                    code_checked = code in st.session_state.sel_codes
+                    col_indent, col_code = st.columns([0.08, 0.92])
                     
-                    cat_checked = cat in st.session_state.sel_categories
-                    val = st.checkbox(f"📁 {cat}", value=cat_checked, key=f"cat_{cat}")
-                    
-                    if val and cat not in st.session_state.sel_categories:
-                        st.session_state.sel_categories.append(cat); st.rerun()
-                    elif not val and cat in st.session_state.sel_categories:
-                        st.session_state.sel_categories.remove(cat); st.rerun()
-                    
-                    # Show subtypes if category is selected
-                    if cat_checked and ont_hier.get(cat):
-                        for code in ont_hier[cat]:
-                            st.markdown(f'<div style="margin-left:20px;font-size:11px;color:#475569;padding:4px 0">`{code}` — {ont_map[code]["subtype"]}</div>', unsafe_allow_html=True)
+                    with col_indent:
+                        pass  # Just for spacing
+                    with col_code:
+                        val = st.checkbox(
+                            f"`{code}` • {ont_map[code]['subtype']}",
+                            value=code_checked,
+                            key=f"code_{code}"
+                        )
+                        if val and code not in st.session_state.sel_codes:
+                            st.session_state.sel_codes.append(code)
+                        elif not val and code in st.session_state.sel_codes:
+                            st.session_state.sel_codes.remove(code)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
     # Compute selected data
     sel_q = st.session_state.sel_questions
-    sel_cats = st.session_state.sel_categories
-    sel_c = []
-    for cat in sel_cats:
-        sel_c.extend(ont_hier.get(cat, []))
+    sel_c = st.session_state.sel_codes
     
     rows_use = df.iloc[sel_q].reset_index(drop=True) if sel_q else df.iloc[[]]
     codes_use = sel_c
