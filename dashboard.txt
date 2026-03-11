@@ -483,46 +483,62 @@ page = st.session_state.page
 # PAGE: UPLOAD INPUT
 # ══════════════════════════════════════════════════════════════════════════════
 if page == "upload":
-    page_header("📂 Upload Input",
-                "Upload your dataset, ontology and prompts to begin the pipeline")
+    st.markdown("""
+    <div style="margin-bottom:24px">
+        <div style="font-size:22px;font-weight:800;color:#0f172a">Upload Input Files</div>
+        <div style="font-size:13px;color:#64748b;margin-top:4px">
+            Upload your dataset, ontology and prompt files to begin the bias detection pipeline.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("""
     <style>
-    [data-testid="stFileUploader"] { width: 100% !important; }
+    [data-testid="stFileUploader"] { width:100% !important; }
     [data-testid="stFileUploader"] section {
-        padding: 20px !important;
-        border: 2px dashed #cbd5e1 !important;
-        border-radius: 10px !important;
+        padding: 14px 16px !important;
+        border: 1.5px dashed #cbd5e1 !important;
+        border-radius: 8px !important;
         background: #f8fafc !important;
+        min-height: unset !important;
     }
     [data-testid="stFileUploader"] section:hover {
         border-color: #2563eb !important;
         background: #eff6ff !important;
     }
+    [data-testid="stFileUploaderDropzone"] { padding: 4px 0 !important; }
     </style>
     """, unsafe_allow_html=True)
 
-    def upload_section(title, icon, desc, key, ftypes,
-                       df_key, bytes_key, fname_key,
-                       is_yaml=False, yaml_sub=None, auto_file=None):
+    def upload_row(label, description, accepted, key,
+                   df_key, bytes_key, fname_key,
+                   is_yaml=False, yaml_sub=None, auto_file=None):
 
-        st.markdown(
-            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;'
-            f'padding:20px 24px;margin-bottom:16px">'
-            f'<div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px">'
-            f'{icon} {title}</div>'
-            f'<div style="font-size:12px;color:#64748b;margin-bottom:16px">{desc}</div>',
-            unsafe_allow_html=True
-        )
+        # Card wrapper
+        st.markdown(f"""
+        <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;
+                    padding:0;margin-bottom:14px;overflow:hidden">
+            <div style="padding:14px 20px 0 20px">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:2px">
+                    <div style="font-size:14px;font-weight:700;color:#0f172a">{label}</div>
+                    <div style="font-size:11px;color:#94a3b8;background:#f1f5f9;
+                                padding:2px 8px;border-radius:20px">{accepted}</div>
+                </div>
+                <div style="font-size:12px;color:#64748b;margin-bottom:12px">{description}</div>
+            </div>
+        """, unsafe_allow_html=True)
 
-        up_col, status_col = st.columns([3, 1])
+        left_col, right_col = st.columns([3, 1])
 
-        with up_col:
+        with left_col:
+            st.markdown('<div style="padding:0 20px 14px 20px">', unsafe_allow_html=True)
             upl = st.file_uploader(
-                f"Browse {title}", type=ftypes,
+                label, type=None,
                 key=key, label_visibility="collapsed"
             )
+            st.markdown('</div>', unsafe_allow_html=True)
 
+        # Process new upload
         if upl:
             raw = upl.read()
             st.session_state[bytes_key] = raw
@@ -533,13 +549,14 @@ if page == "upload":
             else:
                 import io
                 try:
-                    df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
-                          if upl.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw)))
-                    st.session_state[df_key] = df
+                    df_loaded = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+                                 if upl.name.endswith(".xlsx")
+                                 else pd.read_csv(io.BytesIO(raw)))
+                    st.session_state[df_key] = df_loaded
                 except Exception as e:
                     st.error(f"Read error: {e}")
 
-        # Auto-detect YAML from project folder
+        # Auto-detect YAML
         if is_yaml and st.session_state[df_key] is None and auto_file:
             path = BASE_DIR / auto_file
             if path.exists():
@@ -552,49 +569,58 @@ if page == "upload":
         fbytes = st.session_state.get(bytes_key)
         fname  = st.session_state.get(fname_key)
 
-        with status_col:
+        with right_col:
+            st.markdown('<div style="padding:0 20px 14px 0;margin-top:2px">', unsafe_allow_html=True)
             if fbytes and fname:
-                st.markdown(
-                    f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-                    f'padding:8px 12px;font-size:12px;color:#15803d;font-weight:600;'
-                    f'margin-bottom:8px">✅ {fname}</div>',
-                    unsafe_allow_html=True
-                )
                 mime = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         if fname.endswith(".xlsx") else
                         "text/csv" if fname.endswith(".csv") else "text/plain")
-                st.download_button("⬇ Download", data=fbytes, file_name=fname,
-                                   mime=mime, key=f"dl_{key}", use_container_width=True)
-            else:
-                st.markdown(
-                    '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
-                    'padding:8px 12px;font-size:12px;color:#94a3b8">No file loaded</div>',
-                    unsafe_allow_html=True
+                st.markdown(f"""
+                <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;
+                            padding:8px 12px;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+                    <span style="color:#16a34a;font-size:15px">✓</span>
+                    <span style="font-size:12px;color:#15803d;font-weight:600;
+                                 overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{fname}</span>
+                </div>
+                """, unsafe_allow_html=True)
+                st.download_button(
+                    "⬇ Download",
+                    data=fbytes, file_name=fname, mime=mime,
+                    key=f"dl_{key}", use_container_width=True
                 )
+            else:
+                st.markdown("""
+                <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;
+                            padding:8px 12px;font-size:12px;color:#94a3b8;
+                            display:flex;align-items:center;gap:6px">
+                    <span>○</span> No file loaded
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown('</div>', unsafe_allow_html=True)
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # View expander below card
+        # View expander — full width, outside card
         if fbytes and fname:
-            with st.expander(f"👁 View — {fname}", expanded=False):
+            with st.expander(f"👁  View  ·  {fname}", expanded=False):
                 if fname.endswith((".xlsx", ".csv")):
                     import io
                     try:
                         pv = (pd.read_excel(io.BytesIO(fbytes), engine="openpyxl")
-                              if fname.endswith(".xlsx") else pd.read_csv(io.BytesIO(fbytes)))
-                        st.dataframe(pv, use_container_width=True, height=280)
+                              if fname.endswith(".xlsx")
+                              else pd.read_csv(io.BytesIO(fbytes)))
+                        st.dataframe(pv, use_container_width=True, height=260)
                     except Exception as e:
                         st.error(f"Preview error: {e}")
                 else:
                     st.code(fbytes.decode("utf-8", "ignore"), language="yaml")
 
     # ── 1. Input Dataset ──────────────────────────────────────────────────────
-    upload_section(
-        title="Input Dataset",
-        icon="📄",
-        desc="Upload Excel (.xlsx) or CSV file. Required columns: original_question, expected_output",
+    upload_row(
+        label="Input Dataset",
+        description="Your travel question dataset. Must contain original_question and expected_output columns.",
+        accepted=".xlsx  /  .csv",
         key="inp_up",
-        ftypes=["xlsx", "csv"],
         df_key="input_df",
         bytes_key="input_bytes",
         fname_key="input_filename",
@@ -602,12 +628,11 @@ if page == "upload":
     )
 
     # ── 2. Ontology ───────────────────────────────────────────────────────────
-    upload_section(
-        title="Ontology",
-        icon="🗂",
-        desc="Upload ontology.yaml defining bias categories and subtypes. Auto-detected if present in project folder.",
+    upload_row(
+        label="Ontology",
+        description="Defines the 9 bias categories and 29 subtypes used for augmentation. Auto-detected if ontology.yaml exists in the project folder.",
+        accepted=".yaml  /  .yml",
         key="ontology_up",
-        ftypes=["yaml", "yml"],
         df_key="ontology",
         bytes_key="ont_bytes",
         fname_key="ont_filename",
@@ -617,12 +642,11 @@ if page == "upload":
     )
 
     # ── 3. Prompts ────────────────────────────────────────────────────────────
-    upload_section(
-        title="Prompts",
-        icon="📝",
-        desc="Upload prompts.yaml containing the augmentation, assistant response and evaluation prompt templates. Auto-detected if present in project folder.",
+    upload_row(
+        label="Prompts",
+        description="Contains the augmentation, assistant response, and evaluation prompt templates. Auto-detected if prompts.yaml exists in the project folder.",
+        accepted=".yaml  /  .yml",
         key="prompts_up",
-        ftypes=["yaml", "yml"],
         df_key="prompts",
         bytes_key="prm_bytes",
         fname_key="prm_filename",
@@ -631,22 +655,40 @@ if page == "upload":
         auto_file="prompts.yaml",
     )
 
-    # ── Status bar ────────────────────────────────────────────────────────────
+    # ── Status ────────────────────────────────────────────────────────────────
     st.divider()
-    all_loaded = all([
-        st.session_state.input_df  is not None,
-        st.session_state.ontology  is not None,
-        st.session_state.prompts   is not None,
-    ])
-    if st.session_state.input_df is not None:
-        missing = [c for c in ["original_question","expected_output"]
-                   if c not in st.session_state.input_df.columns]
-        if missing:
-            st.error(f"❌ Missing required columns in dataset: {missing}")
-        elif all_loaded:
-            st.success("✅ All files loaded — proceed to Augmentation from the sidebar.")
-        else:
-            st.info("Upload remaining files to continue.")
+    loaded = [
+        st.session_state.input_df is not None,
+        st.session_state.ontology is not None,
+        st.session_state.prompts  is not None,
+    ]
+    labels = ["Input Dataset", "Ontology", "Prompts"]
+
+    sc = st.columns(3)
+    for col, lbl, ok in zip(sc, labels, loaded):
+        col.markdown(
+            f'<div style="background:{"#f0fdf4" if ok else "#fafafa"};'
+            f'border:1px solid {"#bbf7d0" if ok else "#e2e8f0"};'
+            f'border-radius:8px;padding:12px 16px;text-align:center">'
+            f'<div style="font-size:20px;margin-bottom:4px">{"✅" if ok else "⬜"}</div>'
+            f'<div style="font-size:12px;font-weight:600;color:{"#15803d" if ok else "#94a3b8"}">'
+            f'{lbl}</div></div>',
+            unsafe_allow_html=True
+        )
+
+    st.markdown("<div style='margin-top:14px'>", unsafe_allow_html=True)
+    if all(loaded):
+        if st.session_state.input_df is not None:
+            missing = [c for c in ["original_question","expected_output"]
+                       if c not in st.session_state.input_df.columns]
+            if missing:
+                st.error(f"❌ Missing required columns: {missing}")
+            else:
+                st.success("✅ All files loaded — proceed to Augmentation from the sidebar.")
+    else:
+        missing_files = [l for l, ok in zip(labels, loaded) if not ok]
+        st.info(f"Waiting for: {', '.join(missing_files)}")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
