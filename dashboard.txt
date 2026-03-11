@@ -13,6 +13,7 @@ import nest_asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from openai import AsyncAzureOpenAI
+from difflib import SequenceMatcher
 
 nest_asyncio.apply()
 
@@ -48,7 +49,6 @@ st.markdown("""
     padding: 0 !important;
     overflow-y: auto !important;
 }
-/* Kill all default vertical gaps */
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
     gap: 0 !important;
 }
@@ -230,6 +230,10 @@ div[data-testid="stExpander"] {
     border-radius: 10px; padding: 20px 24px; font-size: 13px;
     line-height: 1.9; color: #1e293b; white-space: pre-wrap;
 }
+.highlight-word {
+    background: #fef08a; color: #854d0e; padding: 1px 5px;
+    border-radius: 3px; font-weight: 700;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -274,6 +278,8 @@ DEFAULTS = {
     "last_report":    None,
     "sel_questions":  [],
     "sel_codes":      [],
+    "sel_categories": [],
+    "aug_view_mode":  "raw",
     "azure_key":      os.getenv("AZURE_OPENAI_API_KEY",""),
     "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT",""),
     "azure_version":  os.getenv("AZURE_OPENAI_API_VERSION","2024-02-01"),
@@ -309,6 +315,15 @@ def build_ontology_map(ontology):
                 "bias_pattern": attr["bias_pattern"],
             }
     return m
+
+def build_ontology_hierarchy(ontology):
+    """Build hierarchical structure: category -> [codes]"""
+    h = {}
+    if ontology is None: return h
+    for cat in ontology.get("ontology",[]):
+        codes = [attr["code"] for attr in cat.get("attributes",[])]
+        h[cat["category"]] = codes
+    return h
 
 async def call_llm(prompt, json_mode=True):
     client = AsyncAzureOpenAI(
@@ -356,7 +371,7 @@ def highlight_diff(expected, actual):
     out = []
     for w in str(actual).split():
         if w.lower().strip(".,!?;:\"'") not in exp_words:
-            out.append(f'<span style="background:#fef08a;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:700">{w}</span>')
+            out.append(f'<span class="highlight-word">{w}</span>')
         else:
             out.append(w)
     return " ".join(out)
@@ -364,13 +379,11 @@ def highlight_diff(expected, actual):
 def highlight_bias_in_output(actual_text, failed_metrics, reason_dict):
     """Highlight bias-related phrases in actual output based on failed metric reasons."""
     text = str(actual_text)
-    # Collect bias keywords from failure reasons
     bias_keywords = set()
     for m in failed_metrics:
         mi = METRIC_KEYS.index(m)
         rk = REASON_KEYS[mi]
         reason = str(reason_dict.get(rk, ""))
-        # Extract meaningful words from reason (skip stop words)
         stop = {"the","a","an","is","was","are","were","be","been","being","have","has","had",
                 "do","does","did","will","would","could","should","may","might","shall","can",
                 "for","and","nor","but","or","yet","so","in","on","at","to","of","with","by",
@@ -386,7 +399,6 @@ def highlight_bias_in_output(actual_text, failed_metrics, reason_dict):
     if not bias_keywords:
         return text
 
-    # Highlight matching words in actual output
     words = text.split()
     out = []
     for w in words:
@@ -454,7 +466,6 @@ def side_by_side_diff(expected_text, actual_text):
 # SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
-    # Logo
     st.markdown("""
     <div style="padding:12px 12px 8px;border-bottom:1px solid #1e293b">
         <div style="display:flex;align-items:center;gap:8px">
@@ -467,7 +478,6 @@ with st.sidebar:
         </div>
     </div>""", unsafe_allow_html=True)
 
-    # Progress
     steps_done = sum([st.session_state.input_df is not None,
                       st.session_state.aug_df is not None,
                       st.session_state.eval_df is not None])
@@ -480,7 +490,6 @@ with st.sidebar:
         </div>
     </div>""", unsafe_allow_html=True)
 
-    # Pipeline nav
     st.markdown(
         '<div style="padding:6px 10px 2px;font-size:9px;color:#475569 !important;'
         'font-weight:700;text-transform:uppercase;letter-spacing:.08em">Pipeline Steps</div>',
@@ -495,7 +504,6 @@ with st.sidebar:
         if st.button(f"{icon}  {label}{tick}", key=f"nav_{key}", use_container_width=True):
             st.session_state.page = key; st.rerun()
 
-    # Results nav
     st.markdown(
         '<div style="padding:4px 10px 2px;font-size:9px;color:#475569 !important;'
         'font-weight:700;text-transform:uppercase;letter-spacing:.08em;'
@@ -509,7 +517,6 @@ with st.sidebar:
             else:
                 st.toast("Complete Evaluation first", icon="⚠️")
 
-    # Azure status
     creds_ok = all([st.session_state.azure_key, st.session_state.azure_endpoint,
                     st.session_state.azure_deploy])
     st.markdown(
@@ -527,8 +534,6 @@ page = st.session_state.page
 if page == "upload":
     page_header("📂 Upload Input Files",
                 "Upload your dataset, ontology and prompt files to begin the bias detection pipeline.")
-
-    # Upload cards with green download at top
 
     def upload_card_v2(title, icon, ext, description, file_key, data_key, bytes_key, fname_key,
                        is_yaml=False, yaml_sub=None, auto_file=None):
@@ -582,7 +587,6 @@ if page == "upload":
                 except Exception as e:
                     st.error(f"Read error: {e}")
 
-        # Auto-load yaml
         if is_yaml and st.session_state[data_key] is None and auto_file:
             path = BASE_DIR / auto_file
             if path.exists():
@@ -594,7 +598,6 @@ if page == "upload":
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # Preview (without download — it's already at top)
         fbytes = st.session_state.get(bytes_key)
         fname  = st.session_state.get(fname_key)
         if fbytes and fname:
@@ -623,7 +626,6 @@ if page == "upload":
                    "prompts_up", "prompts", "prm_bytes", "prm_filename",
                    is_yaml=True, yaml_sub="prompts", auto_file="prompts.yaml")
 
-    # Status
     st.divider()
     loaded = [st.session_state.input_df is not None,
               st.session_state.ontology  is not None,
@@ -661,6 +663,7 @@ elif page == "augment":
 
     df      = st.session_state.input_df
     ont_map = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
+    ont_hier = build_ontology_hierarchy(st.session_state.ontology) if st.session_state.ontology else {}
     questions = df["original_question"].tolist() if "original_question" in df.columns else []
 
     st.markdown(
@@ -670,6 +673,8 @@ elif page == "augment":
     st.caption("Use Select All to toggle all, or pick individually.")
 
     col_q, col_o = st.columns(2, gap="large")
+    
+    # ── QUESTIONS COLUMN ──
     with col_q:
         st.markdown("**📄 Input Questions**")
         q_search = st.text_input("🔍 Search questions", "", key="q_search")
@@ -688,9 +693,12 @@ elif page == "augment":
                 if val and i not in st.session_state.sel_questions: st.session_state.sel_questions.append(i)
                 elif not val and i in st.session_state.sel_questions: st.session_state.sel_questions.remove(i)
 
+    # ── ONTOLOGY COLUMN WITH HIERARCHICAL SELECTION ──
     with col_o:
         st.markdown("**🗂 Ontology Codes**")
         o_search = st.text_input("🔍 Search ontology", "", key="o_search")
+        
+        # Master "Select All Codes"
         all_o = len(st.session_state.sel_codes) == len(ont_map) and len(ont_map) > 0
         mo = st.checkbox("Select All Codes", value=all_o, key="master_o")
         if mo and not all_o:
@@ -698,23 +706,71 @@ elif page == "augment":
         elif not mo and all_o:
             st.session_state.sel_codes = []; st.rerun()
         st.caption(f"{len(st.session_state.sel_codes)} / {len(ont_map)} selected")
-        filtered_o = {k:v for k,v in ont_map.items()
-                      if o_search.lower() in k.lower() or o_search.lower() in v["subtype"].lower()
-                      or o_search.lower() in v["category"].lower()} if o_search else ont_map
+        
         with st.container(height=280):
             if not ont_map:
                 st.info("No ontology loaded.")
             else:
+                # Build category structure
                 cats = {}
-                for code, meta in filtered_o.items():
-                    cats.setdefault(meta["category"],[]).append((code, meta))
-                for cat, items in cats.items():
-                    st.markdown(f'<div style="font-size:11px;font-weight:700;color:#2563eb;margin:8px 0 4px;text-transform:uppercase">{cat}</div>', unsafe_allow_html=True)
+                for code, meta in ont_map.items():
+                    if o_search.lower() in code.lower() or o_search.lower() in meta["subtype"].lower() or o_search.lower() in meta["category"].lower():
+                        cats.setdefault(meta["category"],[]).append((code, meta))
+                
+                for cat in sorted(cats.keys()):
+                    items = cats[cat]
+                    codes_in_cat = [code for code, _ in items]
+                    cat_selected = all(c in st.session_state.sel_codes for c in codes_in_cat)
+                    cat_partial = any(c in st.session_state.sel_codes for c in codes_in_cat)
+                    
+                    # Category checkbox
+                    col_cat_check, col_cat_label = st.columns([0.15, 0.85])
+                    with col_cat_check:
+                        cat_val = st.checkbox(
+                            label="cat",
+                            value=cat_selected,
+                            key=f"cat_{cat}",
+                            label_visibility="collapsed"
+                        )
+                        # Handle category selection
+                        if cat_val and not cat_selected:
+                            # Select all in category
+                            st.session_state.sel_codes.extend([c for c in codes_in_cat if c not in st.session_state.sel_codes])
+                            st.rerun()
+                        elif not cat_val and cat_selected:
+                            # Deselect all in category
+                            st.session_state.sel_codes = [c for c in st.session_state.sel_codes if c not in codes_in_cat]
+                            st.rerun()
+                    
+                    with col_cat_label:
+                        st.markdown(
+                            f'<div style="font-size:11px;font-weight:700;color:#2563eb;text-transform:uppercase;'
+                            f'padding:5px 0">{"✓ " if cat_selected else "○ " if cat_partial else "• "}{cat}</div>',
+                            unsafe_allow_html=True
+                        )
+                    
+                    # Subcodes (indented)
                     for code, meta in items:
                         checked = code in st.session_state.sel_codes
-                        val = st.checkbox(f"`{code}` — {meta['subtype']}", value=checked, key=f"o_{code}")
-                        if val and code not in st.session_state.sel_codes: st.session_state.sel_codes.append(code)
-                        elif not val and code in st.session_state.sel_codes: st.session_state.sel_codes.remove(code)
+                        col_check, col_label = st.columns([0.15, 0.85])
+                        with col_check:
+                            val = st.checkbox(
+                                label=code,
+                                value=checked,
+                                key=f"o_{code}",
+                                label_visibility="collapsed"
+                            )
+                            if val and code not in st.session_state.sel_codes:
+                                st.session_state.sel_codes.append(code)
+                            elif not val and code in st.session_state.sel_codes:
+                                st.session_state.sel_codes.remove(code)
+                        
+                        with col_label:
+                            st.markdown(
+                                f'<div style="margin-left:16px;font-size:11px;color:#475569">'
+                                f'`{code}` — {meta["subtype"]}</div>',
+                                unsafe_allow_html=True
+                            )
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -725,7 +781,6 @@ elif page == "augment":
     st.info(f"**{len(rows_use)}** question(s) × **{len(codes_use)}** ontology code(s) selected")
 
     if st.button("▶ Run Augmentation", type="primary", disabled=(len(rows_use)==0 or len(codes_use)==0)):
-        # Clear downstream results when re-augmenting
         st.session_state.gen_df = None
         st.session_state.eval_df = None
         st.session_state.report_row = None
@@ -771,14 +826,50 @@ elif page == "augment":
     if st.session_state.aug_df is not None:
         aug_df = st.session_state.aug_df
         st.divider()
-        ch, cd = st.columns([3,1])
+        
+        # ── VIEW MODE TOGGLE ──
+        ch, ct, cd = st.columns([2, 1, 1])
         with ch: section_label(f"AUGMENTATION RESULTS — {len(aug_df)} ROWS")
+        with ct:
+            view_mode = st.segmented_control(
+                "View Mode",
+                options=["RAW", "HIGHLIGHTED"],
+                default="RAW",
+                key="aug_view",
+                label_visibility="collapsed"
+            )
+            st.session_state.aug_view_mode = view_mode.lower()
         with cd:
             green_download("⬇ Download", to_excel_bytes(aug_df), "step2_augmentation.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_aug")
-        dc = ["A_Code","Category","Subtype","original_question","Augmented Roleplay","Augmented Storyline"]
-        dc = [c for c in dc if c in aug_df.columns]
-        st.dataframe(aug_df[dc], use_container_width=True, height=fit_height(aug_df))
+        
+        # ── DISPLAY TABLE ──
+        if st.session_state.aug_view_mode == "raw":
+            dc = ["A_Code","Category","Subtype","original_question","Augmented Roleplay","Augmented Storyline"]
+            dc = [c for c in dc if c in aug_df.columns]
+            st.dataframe(aug_df[dc], use_container_width=True, height=fit_height(aug_df))
+        else:  # HIGHLIGHTED
+            st.markdown("**Roleplay vs Original** — Yellow words are additions/changes")
+            for idx, row in aug_df.iterrows():
+                with st.expander(f"Row {idx+1} · {row.get('A_Code')} — {row.get('Subtype')}", expanded=False):
+                    col_rp1, col_rp2 = st.columns(2)
+                    with col_rp1:
+                        st.markdown("**Original Question**")
+                        st.markdown(f"{row.get('original_question','—')}")
+                    with col_rp2:
+                        st.markdown("**Augmented Roleplay** (Yellow = Changes)")
+                        diff_rp = highlight_diff(row.get('original_question',''), row.get('Augmented Roleplay',''))
+                        st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:13px;line-height:1.7">{diff_rp}</div>', unsafe_allow_html=True)
+                    
+                    st.markdown("---")
+                    col_sl1, col_sl2 = st.columns(2)
+                    with col_sl1:
+                        st.markdown("**Original Question**")
+                        st.markdown(f"{row.get('original_question','—')}")
+                    with col_sl2:
+                        st.markdown("**Augmented Storyline** (Yellow = Changes)")
+                        diff_sl = highlight_diff(row.get('original_question',''), row.get('Augmented Storyline',''))
+                        st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:13px;line-height:1.7">{diff_sl}</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -795,7 +886,7 @@ elif page == "evaluate":
     prompts = st.session_state.prompts or {}
 
     # ──────────────────────────────────────────────────────────────────────────
-    # STEP 1: GENERATE ACTUAL OUTPUTS
+    # STEP 1: GENERATE OR UPLOAD ACTUAL OUTPUTS
     # ──────────────────────────────────────────────────────────────────────────
     gen_done = st.session_state.gen_df is not None
     st.markdown(
@@ -803,43 +894,71 @@ elif page == "evaluate":
         f'border-radius:12px;padding:20px 24px;margin-bottom:20px;'
         f'border-left:4px solid {"#16a34a" if gen_done else "#2563eb"}">',
         unsafe_allow_html=True)
-    st.markdown(f"#### {'✅' if gen_done else '⏳'} Step 1 — Generate Actual Outputs")
-    st.caption("Run the Travel Assistant AI on each Storyline augmentation to capture its response.")
+    st.markdown(f"#### {'✅' if gen_done else '⏳'} Step 1 — Generate or Upload Actual Outputs")
+    st.caption("Run the Travel Assistant AI on each Storyline augmentation OR upload pre-existing actual outputs.")
 
     if not gen_done:
         c1, c2 = st.columns(2)
-        c1.metric("Augmented Rows", len(aug_df)); c2.metric("Status", "Not started")
-        if st.button("▶ Generate Actual Outputs", type="primary", key="btn_gen"):
-            # Clear downstream when regenerating
-            st.session_state.eval_df = None
-            st.session_state.report_row = None
-            st.session_state.last_report = None
+        with c1:
+            c1.metric("Augmented Rows", len(aug_df))
+        with c2:
+            c2.metric("Status", "Pending")
 
-            progress = st.progress(0, text="Starting…")
-            async def generate_all():
-                async def one(storyline, expected):
-                    p = (prompts.get("assistant_response","")
-                         .replace("{{question}}",str(storyline)).replace("{{expected_output}}",str(expected)))
-                    r = await call_llm(p, json_mode=False)
-                    return str(r) if r else ""
-                tasks = [one(row["Augmented Storyline"], row.get("expected_output",""))
-                         for _, row in aug_df.iterrows()]
-                return await asyncio.gather(*tasks, return_exceptions=True)
-            gen_results = run_async(generate_all())
-            for i in range(len(gen_results)):
-                progress.progress((i+1)/len(gen_results), text=f"Generated {i+1}/{len(gen_results)}…")
-            progress.empty()
-            tmp = aug_df.copy()
-            tmp["Actual Output"] = [str(r) if not isinstance(r, Exception) else "" for r in gen_results]
-            tmp.to_excel(OUTPUT_DIR/"step3_generated.xlsx", index=False)
-            st.session_state.gen_df = tmp
-            st.success(f"✅ {len(tmp)} outputs generated."); st.rerun()
+        # Option selection
+        option_col1, option_col2 = st.columns([1, 1])
+        with option_col1:
+            if st.button("▶ Generate Actual Outputs", type="primary", key="btn_gen"):
+                progress = st.progress(0, text="Starting…")
+                async def generate_all():
+                    async def one(storyline, expected):
+                        p = (prompts.get("assistant_response","")
+                             .replace("{{question}}",str(storyline)).replace("{{expected_output}}",str(expected)))
+                        r = await call_llm(p, json_mode=False)
+                        return str(r) if r else ""
+                    tasks = [one(row["Augmented Storyline"], row.get("expected_output",""))
+                             for _, row in aug_df.iterrows()]
+                    return await asyncio.gather(*tasks, return_exceptions=True)
+                gen_results = run_async(generate_all())
+                for i in range(len(gen_results)):
+                    progress.progress((i+1)/len(gen_results), text=f"Generated {i+1}/{len(gen_results)}…")
+                progress.empty()
+                tmp = aug_df.copy()
+                tmp["Actual Output"] = [str(r) if not isinstance(r, Exception) else "" for r in gen_results]
+                tmp.to_excel(OUTPUT_DIR/"step3_generated.xlsx", index=False)
+                st.session_state.gen_df = tmp
+                st.success(f"✅ {len(tmp)} outputs generated."); st.rerun()
+        
+        with option_col2:
+            st.markdown("**OR**")
+            upl_actual = st.file_uploader("📤 Upload Actual Outputs (.xlsx / .csv)", type=None, key="upl_actual")
+            
+            if upl_actual:
+                try:
+                    raw = upl_actual.read()
+                    upl_df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+                              if upl_actual.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw)))
+                    
+                    # Validate structure
+                    if "Actual Output" not in upl_df.columns:
+                        st.error("❌ Uploaded file must contain 'Actual Output' column")
+                    elif len(upl_df) != len(aug_df):
+                        st.error(f"❌ Row count mismatch: expected {len(aug_df)}, got {len(upl_df)}")
+                    else:
+                        # Merge with augmentation data
+                        tmp = aug_df.copy()
+                        tmp["Actual Output"] = upl_df["Actual Output"].values
+                        tmp.to_excel(OUTPUT_DIR/"step3_generated.xlsx", index=False)
+                        st.session_state.gen_df = tmp
+                        st.success(f"✅ {len(tmp)} outputs loaded from file."); st.rerun()
+                except Exception as e:
+                    st.error(f"Upload error: {e}")
+
     else:
-        # Show generated data — always visible
+        # Show generated data
         gdf = st.session_state.gen_df
         ch, cd = st.columns([3,1])
         with ch:
-            st.markdown(f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs generated</span>', unsafe_allow_html=True)
+            st.markdown(f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>', unsafe_allow_html=True)
         with cd:
             green_download("⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
@@ -848,7 +967,7 @@ elif page == "evaluate":
         gc = [c for c in gc if c in gdf.columns]
         st.dataframe(gdf[gc], use_container_width=True, height=fit_height(gdf))
 
-        # Diff Viewer — side by side
+        # Diff Viewer
         with st.expander("🔍 Diff Viewer — Expected vs Actual (side by side)", expanded=False):
             d1, d2 = st.columns([1, 3])
             with d1:
@@ -869,7 +988,7 @@ elif page == "evaluate":
     st.markdown('</div>', unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────────────────────
-    # STEP 2: RUN EVALUATION (visible only after gen done)
+    # STEP 2: RUN EVALUATION
     # ──────────────────────────────────────────────────────────────────────────
     if gen_done:
         eval_done = st.session_state.eval_df is not None
@@ -927,7 +1046,7 @@ elif page == "evaluate":
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ──────────────────────────────────────────────────────────────────────────
-    # EVALUATION RESULTS (always visible once eval is done)
+    # EVALUATION RESULTS
     # ──────────────────────────────────────────────────────────────────────────
     if st.session_state.eval_df is not None:
         edf   = st.session_state.eval_df
@@ -952,10 +1071,8 @@ elif page == "evaluate":
 
         st.divider()
 
-        # ── FILTERS — all in one compact row ──
         section_label("EVALUATION TABLE")
 
-        # Row 1: All filters
         filter_cols = st.columns([3, 1, 1.2, 1.5, 1])
         with filter_cols[0]:
             search = st.text_input("🔍 Search", "", key="eval_search", placeholder="Type to search…")
@@ -968,10 +1085,8 @@ elif page == "evaluate":
         with filter_cols[4]:
             metric_status_f = st.selectbox("Metric Status", ["All","Pass","Fail"], key="eval_msf")
 
-        # Row 2: Record count + Download
         info_col, dl_col = st.columns([4, 1])
 
-        # Apply all filters
         fdf = edf.copy()
         if search:
             mask = fdf.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
@@ -1004,7 +1119,6 @@ elif page == "evaluate":
             .applymap(style_metric, subset=[m for m in METRIC_KEYS if m in fdf.columns]),
             use_container_width=True, height=fit_height(fdf))
 
-        # ── FAILURE REASONS — BIAS HIGHLIGHTED IN ACTUAL OUTPUT ──
         st.divider()
         section_label("FAILURE REASONS — BIAS HIGHLIGHTED")
         fail_only = fdf[fdf["Status"]=="Fail"]
@@ -1017,7 +1131,6 @@ elif page == "evaluate":
 
                     st.markdown(f"**Bias Pattern:** `{row.get('Bias Type','—')}`")
 
-                    # Actual Output with bias keywords highlighted in red
                     act_text = str(row.get("Actual Output",""))
                     reason_dict = {rk: row.get(rk,"") for rk in REASON_KEYS}
                     bias_html = highlight_bias_in_output(act_text, fn, reason_dict)
@@ -1033,7 +1146,6 @@ elif page == "evaluate":
                         f'{bias_html}</div>',
                         unsafe_allow_html=True)
 
-                    # Legend
                     st.markdown(
                         '<div style="margin-top:6px;font-size:11px;color:#64748b">'
                         '🔴 <span style="background:#fecaca;color:#991b1b;padding:1px 6px;border-radius:3px;'
@@ -1071,7 +1183,6 @@ elif page == "analysis":
     fail_df   = edf[edf["Status"]=="Fail"]
     crit_df   = edf[edf[METRIC_KEYS].ge(THRESHOLD).sum(axis=1)>=3]
     categories = sorted(edf["Category"].dropna().unique().tolist())
-    subtypes   = sorted(edf["Subtype"].dropna().unique().tolist())
 
     cols = st.columns(6)
     for col,(lbl,val),clr in zip(cols,
@@ -1088,7 +1199,6 @@ elif page == "analysis":
 
     st.divider()
 
-    # Row 1
     c1,c2 = st.columns(2)
     with c1:
         section_label("AVG METRIC SCORE BY CATEGORY")
@@ -1109,7 +1219,6 @@ elif page == "analysis":
 
     st.divider()
 
-    # Row 2
     c3,c4 = st.columns(2)
     with c3:
         section_label("CATEGORY RADAR")
@@ -1129,7 +1238,6 @@ elif page == "analysis":
 
     st.divider()
 
-    # Row 3
     c5,c6 = st.columns(2)
     with c5:
         section_label("PASS / FAIL DISTRIBUTION")
@@ -1154,7 +1262,6 @@ elif page == "analysis":
 
     st.divider()
 
-    # Scatter
     section_label("FAIRNESS DEGRADATION vs STEREOTYPE INJECTION")
     sdf = edf[["Fairness Degradation","Stereotype Injection","Decision Flip","Category","Status","A_Code"]].copy()
     fs = px.scatter(sdf,x="Fairness Degradation",y="Stereotype Injection",size="Decision Flip",color="Status",
@@ -1164,7 +1271,6 @@ elif page == "analysis":
 
     st.divider()
 
-    # Heatmap
     section_label("CATEGORY × METRIC HEATMAP")
     hd = []
     for cat in categories:
@@ -1181,7 +1287,6 @@ elif page == "analysis":
 
     st.divider()
 
-    # Subtype Risk
     sr_h, sr_dl = st.columns([3,1])
     with sr_h: section_label("SUBTYPE RISK TABLE")
     with sr_dl:
@@ -1201,7 +1306,6 @@ elif page == "analysis":
 
     st.divider()
 
-    # Full table
     ft_h, ft_dl = st.columns([3,1])
     with ft_h: section_label("FULL RESULTS TABLE")
     with ft_dl:
