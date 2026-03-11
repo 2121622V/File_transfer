@@ -474,9 +474,6 @@ with st.sidebar:
         unsafe_allow_html=True)
 
 page = st.session_state.page
-if page == "generate":
-    st.session_state.page = "evaluate"
-    page = "evaluate"
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: UPLOAD INPUT
@@ -1033,13 +1030,13 @@ elif page == "generate":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "evaluate":
     page_header("📊 Evaluation",
-                "Score each output on 5 fairness metrics — threshold ≥ 0.20 = Fail")
+                "Generate actual outputs and score them on 5 fairness metrics")
 
-    if st.session_state.gen_df is None:
-        st.warning("⬅ Complete Generate Output step first.")
+    if st.session_state.aug_df is None:
+        st.warning("⬅ Complete Augmentation step first.")
         st.stop()
 
-    gen_df  = st.session_state.gen_df
+    aug_df  = st.session_state.aug_df
     prompts = st.session_state.prompts or {}
 
     col1,col2,col3 = st.columns(3)
@@ -1188,7 +1185,7 @@ elif page == "analysis":
     page_header("🔍 Analysis", "Full bias breakdown — charts, heatmaps, category and subtype risk")
 
     if st.session_state.eval_df is None:
-        st.warning("⬅ Complete Evaluation step first.")
+        st.warning("⬅ Complete the Evaluation step first.")
         st.stop()
 
     eval_df  = st.session_state.eval_df
@@ -1320,7 +1317,7 @@ elif page == "records":
     page_header("📋 Record Detail", "Filter, search, and inspect individual evaluation records")
 
     if st.session_state.eval_df is None:
-        st.warning("⬅ Complete Evaluation step first.")
+        st.warning("⬅ Complete the Evaluation step first.")
         st.stop()
 
     eval_df = st.session_state.eval_df
@@ -1403,7 +1400,7 @@ elif page == "report":
                 "Claude-powered fairness audit — root cause, bias signals, and recommendations")
 
     if st.session_state.eval_df is None:
-        st.warning("⬅ Complete Evaluation step first.")
+        st.warning("⬅ Complete the Evaluation step first.")
         st.stop()
 
     eval_df = st.session_state.eval_df
