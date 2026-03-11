@@ -671,7 +671,7 @@ elif page == "augment":
         unsafe_allow_html=True
     )
     st.markdown("#### Select Questions & Ontology Codes to Augment")
-    st.caption("Use the controls below to select questions and ontology codes. Only selected items will be augmented.")
+    st.caption("Use Select All checkbox to toggle all, or pick individually. Search to filter.")
 
     col_q, col_o = st.columns(2, gap="large")
 
@@ -685,23 +685,26 @@ elif page == "augment":
 
     with col_q:
         st.markdown("**📄 Input Questions**")
-
-        # Search + bulk controls
         q_search = st.text_input("🔍 Search questions", "", key="q_search")
-        qa, qb, qc = st.columns(3)
-        if qa.button("☑ Select All",   key="q_sel_all",   use_container_width=True):
+
+        all_q_selected = len(st.session_state.sel_questions) == len(questions)
+        master_q = st.checkbox("Select All Questions", value=all_q_selected, key="master_q")
+
+        if master_q and not all_q_selected:
             st.session_state.sel_questions = list(range(len(questions)))
+            # sync individual keys
+            for i in range(len(questions)):
+                st.session_state[f"q_{i}"] = True
             st.rerun()
-        if qb.button("☐ Deselect All", key="q_desel_all", use_container_width=True):
+        elif not master_q and all_q_selected:
             st.session_state.sel_questions = []
-            st.rerun()
-        if qc.button("⇅ Invert",       key="q_invert",    use_container_width=True):
-            all_idx = set(range(len(questions)))
-            st.session_state.sel_questions = list(all_idx - set(st.session_state.sel_questions))
+            # sync individual keys
+            for i in range(len(questions)):
+                st.session_state[f"q_{i}"] = False
             st.rerun()
 
         st.markdown(
-            f'<div style="font-size:11px;color:#64748b;margin:6px 0 8px">'
+            f'<div style="font-size:11px;color:#64748b;margin:4px 0 8px">'
             f'{len(st.session_state.sel_questions)} / {len(questions)} selected</div>',
             unsafe_allow_html=True
         )
@@ -709,12 +712,14 @@ elif page == "augment":
         filtered_q = [(i, q) for i, q in enumerate(questions)
                       if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
 
-        q_container = st.container(height=320)
+        q_container = st.container(height=300)
         with q_container:
             for i, q in filtered_q:
                 checked = i in st.session_state.sel_questions
-                label   = f"**Q{i+1}** — {q[:90]}{'…' if len(q)>90 else ''}"
-                new_val = st.checkbox(label, value=checked, key=f"q_{i}")
+                new_val = st.checkbox(
+                    f"Q{i+1} — {q[:90]}{'…' if len(q)>90 else ''}",
+                    value=checked, key=f"q_{i}"
+                )
                 if new_val and i not in st.session_state.sel_questions:
                     st.session_state.sel_questions.append(i)
                 elif not new_val and i in st.session_state.sel_questions:
@@ -722,23 +727,26 @@ elif page == "augment":
 
     with col_o:
         st.markdown("**🗂 Ontology Codes**")
-
-        # Search + bulk controls
         o_search = st.text_input("🔍 Search ontology", "", key="o_search")
-        oa, ob, oc = st.columns(3)
-        if oa.button("☑ Select All",   key="o_sel_all",   use_container_width=True):
+
+        all_o_selected = len(st.session_state.sel_codes) == len(ont_map)
+        master_o = st.checkbox("Select All Codes", value=all_o_selected, key="master_o")
+
+        if master_o and not all_o_selected:
             st.session_state.sel_codes = list(ont_map.keys())
+            # sync individual keys
+            for code in ont_map.keys():
+                st.session_state[f"o_{code}"] = True
             st.rerun()
-        if ob.button("☐ Deselect All", key="o_desel_all", use_container_width=True):
+        elif not master_o and all_o_selected:
             st.session_state.sel_codes = []
-            st.rerun()
-        if oc.button("⇅ Invert",       key="o_invert",    use_container_width=True):
-            all_codes_set = set(ont_map.keys())
-            st.session_state.sel_codes = list(all_codes_set - set(st.session_state.sel_codes))
+            # sync individual keys
+            for code in ont_map.keys():
+                st.session_state[f"o_{code}"] = False
             st.rerun()
 
         st.markdown(
-            f'<div style="font-size:11px;color:#64748b;margin:6px 0 8px">'
+            f'<div style="font-size:11px;color:#64748b;margin:4px 0 8px">'
             f'{len(st.session_state.sel_codes)} / {len(ont_map)} selected</div>',
             unsafe_allow_html=True
         )
@@ -749,9 +757,8 @@ elif page == "augment":
                       or o_search.lower() in v["category"].lower()
                       } if o_search else ont_map
 
-        o_container = st.container(height=320)
+        o_container = st.container(height=300)
         with o_container:
-            # Group by category
             categories_seen = {}
             for code, meta in filtered_o.items():
                 cat = meta["category"]
@@ -768,8 +775,10 @@ elif page == "augment":
                 )
                 for code, meta in items:
                     checked = code in st.session_state.sel_codes
-                    label   = f"`{code}` — {meta['subtype']}"
-                    new_val = st.checkbox(label, value=checked, key=f"o_{code}")
+                    new_val = st.checkbox(
+                        f"`{code}` — {meta['subtype']}",
+                        value=checked, key=f"o_{code}"
+                    )
                     if new_val and code not in st.session_state.sel_codes:
                         st.session_state.sel_codes.append(code)
                     elif not new_val and code in st.session_state.sel_codes:
