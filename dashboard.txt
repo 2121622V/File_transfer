@@ -488,198 +488,165 @@ if page == "upload":
 
     st.markdown("""
     <style>
-    /* Make file uploader full width and bigger */
-    [data-testid="stFileUploader"] {
-        width: 100% !important;
-    }
+    [data-testid="stFileUploader"] { width: 100% !important; }
     [data-testid="stFileUploader"] section {
-        padding: 18px 20px !important;
+        padding: 20px !important;
         border: 2px dashed #cbd5e1 !important;
         border-radius: 10px !important;
         background: #f8fafc !important;
-        transition: border-color 0.2s;
     }
     [data-testid="stFileUploader"] section:hover {
         border-color: #2563eb !important;
         background: #eff6ff !important;
     }
-    [data-testid="stFileUploaderDropzoneInstructions"] {
-        font-size: 14px !important;
-        color: #334155 !important;
-    }
-    [data-testid="stFileUploaderDropzoneInstructions"] span {
-        color: #2563eb !important;
-        font-weight: 600 !important;
-    }
     </style>
     """, unsafe_allow_html=True)
 
-    def file_row(label, icon, desc, uploader_key, file_types,
-                 session_df_key, session_bytes_key, session_fname_key,
-                 is_yaml=False, yaml_sub_key=None):
-        """Render one full-width upload row with view/download on the right."""
+    def upload_section(title, icon, desc, key, ftypes,
+                       df_key, bytes_key, fname_key,
+                       is_yaml=False, yaml_sub=None, auto_file=None):
+
         st.markdown(
-            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
-            f'padding:16px 20px;margin-bottom:14px">'
-            f'<div style="font-size:13px;font-weight:700;color:#0f172a;margin-bottom:2px">'
-            f'{icon} {label}</div>'
-            f'<div style="font-size:11px;color:#94a3b8;margin-bottom:12px">{desc}</div>',
+            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;'
+            f'padding:20px 24px;margin-bottom:16px">'
+            f'<div style="font-size:15px;font-weight:700;color:#0f172a;margin-bottom:4px">'
+            f'{icon} {title}</div>'
+            f'<div style="font-size:12px;color:#64748b;margin-bottom:16px">{desc}</div>',
             unsafe_allow_html=True
         )
 
-        left, right = st.columns([3, 1])
+        up_col, status_col = st.columns([3, 1])
 
-        with left:
+        with up_col:
             upl = st.file_uploader(
-                f"Browse {label}",
-                type=file_types,
-                key=uploader_key,
-                label_visibility="collapsed"
+                f"Browse {title}", type=ftypes,
+                key=key, label_visibility="collapsed"
             )
 
-        # Process upload
         if upl:
             raw = upl.read()
-            st.session_state[session_bytes_key] = raw
-            st.session_state[session_fname_key] = upl.name
+            st.session_state[bytes_key] = raw
+            st.session_state[fname_key] = upl.name
             if is_yaml:
                 parsed = yaml.safe_load(raw)
-                if yaml_sub_key:
-                    st.session_state[session_df_key] = parsed[yaml_sub_key]
-                else:
-                    st.session_state[session_df_key] = parsed
+                st.session_state[df_key] = parsed[yaml_sub] if yaml_sub else parsed
             else:
                 import io
                 try:
                     df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
-                          if upl.name.endswith(".xlsx")
-                          else pd.read_csv(io.BytesIO(raw)))
-                    st.session_state[session_df_key] = df
+                          if upl.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw)))
+                    st.session_state[df_key] = df
                 except Exception as e:
-                    with right:
-                        st.error(f"Error: {e}")
+                    st.error(f"Read error: {e}")
 
-        # Auto-detect from project folder for YAML
-        if (is_yaml and st.session_state[session_df_key] is None):
-            candidates = [BASE_DIR / f"{uploader_key.split('_')[0]}.yaml",
-                          BASE_DIR / f"{uploader_key.split('_')[0]}.yml"]
-            for path in candidates:
-                if path.exists():
-                    raw = open(path, "rb").read()
-                    parsed = yaml.safe_load(raw)
-                    st.session_state[session_bytes_key] = raw
-                    st.session_state[session_fname_key] = path.name
-                    st.session_state[session_df_key] = parsed[yaml_sub_key] if yaml_sub_key else parsed
-                    break
+        # Auto-detect YAML from project folder
+        if is_yaml and st.session_state[df_key] is None and auto_file:
+            path = BASE_DIR / auto_file
+            if path.exists():
+                raw = open(path, "rb").read()
+                parsed = yaml.safe_load(raw)
+                st.session_state[bytes_key] = raw
+                st.session_state[fname_key] = auto_file
+                st.session_state[df_key] = parsed[yaml_sub] if yaml_sub else parsed
 
-        # Right side: status + view + download
-        with right:
-            fname  = st.session_state.get(session_fname_key)
-            fbytes = st.session_state.get(session_bytes_key)
+        fbytes = st.session_state.get(bytes_key)
+        fname  = st.session_state.get(fname_key)
+
+        with status_col:
             if fbytes and fname:
                 st.markdown(
                     f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
-                    f'padding:8px 12px;font-size:12px;color:#15803d;font-weight:600;margin-bottom:8px">'
-                    f'✅ {fname}</div>',
+                    f'padding:8px 12px;font-size:12px;color:#15803d;font-weight:600;'
+                    f'margin-bottom:8px">✅ {fname}</div>',
                     unsafe_allow_html=True
                 )
                 mime = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                         if fname.endswith(".xlsx") else
                         "text/csv" if fname.endswith(".csv") else "text/plain")
-                st.download_button(
-                    label="⬇ Download",
-                    data=fbytes,
-                    file_name=fname,
-                    mime=mime,
-                    key=f"dl_{uploader_key}",
-                    use_container_width=True
-                )
+                st.download_button("⬇ Download", data=fbytes, file_name=fname,
+                                   mime=mime, key=f"dl_{key}", use_container_width=True)
             else:
                 st.markdown(
                     '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
-                    'padding:8px 12px;font-size:12px;color:#94a3b8">No file loaded yet</div>',
+                    'padding:8px 12px;font-size:12px;color:#94a3b8">No file loaded</div>',
                     unsafe_allow_html=True
                 )
 
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # View section — full width below upload row
-        fbytes = st.session_state.get(session_bytes_key)
-        fname  = st.session_state.get(session_fname_key)
+        # View expander below card
         if fbytes and fname:
-            with st.expander(f"👁 View {label} — `{fname}`", expanded=False):
+            with st.expander(f"👁 View — {fname}", expanded=False):
                 if fname.endswith((".xlsx", ".csv")):
                     import io
                     try:
-                        preview = (pd.read_excel(io.BytesIO(fbytes), engine="openpyxl")
-                                   if fname.endswith(".xlsx")
-                                   else pd.read_csv(io.BytesIO(fbytes)))
-                        st.dataframe(preview, use_container_width=True, height=280)
+                        pv = (pd.read_excel(io.BytesIO(fbytes), engine="openpyxl")
+                              if fname.endswith(".xlsx") else pd.read_csv(io.BytesIO(fbytes)))
+                        st.dataframe(pv, use_container_width=True, height=280)
                     except Exception as e:
                         st.error(f"Preview error: {e}")
                 else:
                     st.code(fbytes.decode("utf-8", "ignore"), language="yaml")
 
-    # ── File 1: Input Dataset ─────────────────────────────────────────────────
-    file_row(
-        label="Input Dataset",
+    # ── 1. Input Dataset ──────────────────────────────────────────────────────
+    upload_section(
+        title="Input Dataset",
         icon="📄",
-        desc="Excel or CSV file · must contain original_question and expected_output columns",
-        uploader_key="inp_up",
-        file_types=["xlsx","csv"],
-        session_df_key="input_df",
-        session_bytes_key="input_bytes",
-        session_fname_key="input_filename",
+        desc="Upload Excel (.xlsx) or CSV file. Required columns: original_question, expected_output",
+        key="inp_up",
+        ftypes=["xlsx", "csv"],
+        df_key="input_df",
+        bytes_key="input_bytes",
+        fname_key="input_filename",
         is_yaml=False,
     )
 
-    # ── File 2: Ontology ──────────────────────────────────────────────────────
-    file_row(
-        label="Ontology",
+    # ── 2. Ontology ───────────────────────────────────────────────────────────
+    upload_section(
+        title="Ontology",
         icon="🗂",
-        desc="ontology.yaml · defines 9 bias categories and 29 subtypes · auto-detected if in project folder",
-        uploader_key="ontology_up",
-        file_types=["yaml","yml"],
-        session_df_key="ontology",
-        session_bytes_key="ont_bytes",
-        session_fname_key="ont_filename",
+        desc="Upload ontology.yaml defining bias categories and subtypes. Auto-detected if present in project folder.",
+        key="ontology_up",
+        ftypes=["yaml", "yml"],
+        df_key="ontology",
+        bytes_key="ont_bytes",
+        fname_key="ont_filename",
         is_yaml=True,
-        yaml_sub_key=None,
+        yaml_sub=None,
+        auto_file="ontology.yaml",
     )
 
-    # ── File 3: Prompts ───────────────────────────────────────────────────────
-    file_row(
-        label="Prompts",
+    # ── 3. Prompts ────────────────────────────────────────────────────────────
+    upload_section(
+        title="Prompts",
         icon="📝",
-        desc="prompts.yaml · contains augmentation, assistant_response and evaluation prompts · auto-detected if in project folder",
-        uploader_key="prompts_up",
-        file_types=["yaml","yml"],
-        session_df_key="prompts",
-        session_bytes_key="prm_bytes",
-        session_fname_key="prm_filename",
+        desc="Upload prompts.yaml containing the augmentation, assistant response and evaluation prompt templates. Auto-detected if present in project folder.",
+        key="prompts_up",
+        ftypes=["yaml", "yml"],
+        df_key="prompts",
+        bytes_key="prm_bytes",
+        fname_key="prm_filename",
         is_yaml=True,
-        yaml_sub_key="prompts",
+        yaml_sub="prompts",
+        auto_file="prompts.yaml",
     )
 
-    # ── Summary ───────────────────────────────────────────────────────────────
-    ont_map = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
-    q_count = len(st.session_state.input_df) if st.session_state.input_df is not None else 0
-    if q_count or ont_map:
-        st.divider()
-        section("PIPELINE SUMMARY")
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Input Questions",      q_count)
-        m2.metric("Bias Categories",      len(st.session_state.ontology.get("ontology",[])) if st.session_state.ontology else 0)
-        m3.metric("Ontology Subtypes",    len(ont_map))
-        m4.metric("Total Aug. Calls",     q_count * len(ont_map) if ont_map else 0)
-
-        if st.session_state.input_df is not None:
-            missing = [c for c in ["original_question","expected_output"]
-                       if c not in st.session_state.input_df.columns]
-            if missing:
-                st.error(f"❌ Missing required columns: {missing}")
-            else:
-                st.success("✅ All files ready — proceed to **Augmentation** from the sidebar.")
+    # ── Status bar ────────────────────────────────────────────────────────────
+    st.divider()
+    all_loaded = all([
+        st.session_state.input_df  is not None,
+        st.session_state.ontology  is not None,
+        st.session_state.prompts   is not None,
+    ])
+    if st.session_state.input_df is not None:
+        missing = [c for c in ["original_question","expected_output"]
+                   if c not in st.session_state.input_df.columns]
+        if missing:
+            st.error(f"❌ Missing required columns in dataset: {missing}")
+        elif all_loaded:
+            st.success("✅ All files loaded — proceed to Augmentation from the sidebar.")
+        else:
+            st.info("Upload remaining files to continue.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -687,7 +654,7 @@ if page == "upload":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "augment":
     page_header("🔀 Augmentation",
-                "Generate Roleplay and Storyline versions for every question × ontology subtype")
+                "Select questions and ontology codes, then generate Roleplay and Storyline augmentations")
 
     if st.session_state.input_df is None:
         st.warning("⬅ Complete Upload Input step first.")
@@ -697,29 +664,55 @@ elif page == "augment":
     ont_map = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
     codes   = list(ont_map.keys())
 
-    col1,col2,col3,col4 = st.columns(4)
-    kpi(col1,"Input Questions", len(df),            "#2563eb")
-    kpi(col2,"Ontology Codes",  len(codes),          "#6366f1")
-    kpi(col3,"Total LLM Calls", len(df)*len(codes),  "#f59e0b")
-    kpi(col4,"Status",
-        "Complete ✓" if st.session_state.aug_df is not None else "Pending",
-        "#16a34a" if st.session_state.aug_df is not None else "#94a3b8")
+    # ── Selection ─────────────────────────────────────────────────────────────
+    st.markdown(
+        '<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;'
+        'padding:20px 24px;margin-bottom:16px">',
+        unsafe_allow_html=True
+    )
+    st.markdown("#### Select Questions & Ontology Codes to Augment")
+    st.caption("Tick the questions and ontology subtypes you want to run. Leave all unticked to run everything.")
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    col_q, col_o = st.columns(2, gap="large")
 
-    with st.expander("⚙️ Testing Options — Limit rows/codes for faster testing"):
-        c1,c2 = st.columns(2)
-        limit_rows  = c1.number_input("Limit input rows (0 = all)",  min_value=0, max_value=len(df),   value=0, step=1, key="aug_r")
-        limit_codes = c2.number_input("Limit ontology codes (0 = all)", min_value=0, max_value=len(codes), value=0, step=1, key="aug_c")
+    with col_q:
+        st.markdown("**📄 Input Questions**")
+        questions = df["original_question"].tolist() if "original_question" in df.columns else []
+        select_all_q = st.checkbox("Select All Questions", value=True, key="sel_all_q")
+        selected_questions = []
+        for i, q in enumerate(questions):
+            checked = st.checkbox(
+                f"Q{i+1}: {q[:80]}{'…' if len(q)>80 else ''}",
+                value=select_all_q,
+                key=f"q_chk_{i}"
+            )
+            if checked:
+                selected_questions.append(i)
 
-    rows_to_use  = df.head(int(limit_rows))    if int(limit_rows)  > 0 else df
-    codes_to_use = codes[:int(limit_codes)]    if int(limit_codes) > 0 else codes
-    total_calls  = len(rows_to_use) * len(codes_to_use)
+    with col_o:
+        st.markdown("**🗂 Ontology Codes**")
+        select_all_o = st.checkbox("Select All Ontology Codes", value=True, key="sel_all_o")
+        selected_codes = []
+        for code, meta in ont_map.items():
+            checked = st.checkbox(
+                f"{code} — {meta['subtype']}  ·  *{meta['category'].split(' ',1)[1] if ' ' in meta['category'] else meta['category']}*",
+                value=select_all_o,
+                key=f"o_chk_{code}"
+            )
+            if checked:
+                selected_codes.append(code)
 
-    st.info(f"**{total_calls}** augmentation calls — {len(rows_to_use)} questions × {len(codes_to_use)} codes")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    if st.button("▶ Run Augmentation", type="primary"):
+    rows_to_use  = df.iloc[selected_questions] if selected_questions else df.iloc[[]]
+    codes_to_use = selected_codes
+
+    st.info(f"**{len(rows_to_use)}** question(s) × **{len(codes_to_use)}** ontology code(s) selected")
+
+    if st.button("▶ Run Augmentation", type="primary",
+                 disabled=(len(rows_to_use)==0 or len(codes_to_use)==0)):
         prompts  = st.session_state.prompts or {}
+        total    = len(rows_to_use) * len(codes_to_use)
         progress = st.progress(0, text="Initializing…")
         aug_rows = []
 
@@ -733,65 +726,62 @@ elif page == "augment":
                 return await call_llm(p)
             tasks = [
                 one(str(r["original_question"]), code, ont_map[code])
-                for _,r in rows_to_use.iterrows()
+                for _, r in rows_to_use.iterrows()
                 for code in codes_to_use
             ]
             return await asyncio.gather(*tasks, return_exceptions=True)
 
         results = run_async(augment_all())
         idx = 0
-        for _,row in rows_to_use.iterrows():
+        for _, row in rows_to_use.iterrows():
             for code in codes_to_use:
                 res = results[idx]; idx += 1
-                progress.progress(idx/total_calls, text=f"Augmenting {idx}/{total_calls}…")
-                if isinstance(res,Exception) or not res: continue
+                progress.progress(idx / total, text=f"Augmenting {idx}/{total}…")
+                if isinstance(res, Exception) or not res:
+                    continue
                 aug_rows.append({
-                    "original_question": str(row["original_question"]),
-                    "expected_output":   str(row.get("expected_output","")),
-                    "A_Code":   code,
-                    "Category": ont_map[code]["category"],
-                    "Subtype":  ont_map[code]["subtype"],
-                    "Bias Type":ont_map[code]["bias_pattern"],
-                    "Augmented Roleplay":  res.get("roleplay_question",""),
-                    "Augmented Storyline": res.get("storyline_question",""),
+                    "original_question":   str(row["original_question"]),
+                    "expected_output":     str(row.get("expected_output", "")),
+                    "A_Code":              code,
+                    "Category":            ont_map[code]["category"],
+                    "Subtype":             ont_map[code]["subtype"],
+                    "Bias Type":           ont_map[code]["bias_pattern"],
+                    "Augmented Roleplay":  res.get("roleplay_question", ""),
+                    "Augmented Storyline": res.get("storyline_question", ""),
                 })
         progress.empty()
+
         if aug_rows:
             aug_df = pd.DataFrame(aug_rows)
-            aug_df.to_excel(OUTPUT_DIR/"step2_augmentation.xlsx", index=False)
+            aug_df.to_excel(OUTPUT_DIR / "step2_augmentation.xlsx", index=False)
             st.session_state.aug_df = aug_df
-            st.success(f"✅ {len(aug_df)} rows generated and saved.")
+            st.success(f"✅ {len(aug_df)} rows generated.")
             st.rerun()
         else:
-            st.error("No results returned. Check Azure credentials.")
+            st.error("No results returned. Check Azure credentials and prompts.")
 
+    # ── Results table ─────────────────────────────────────────────────────────
     if st.session_state.aug_df is not None:
         st.divider()
         aug_df = st.session_state.aug_df
-        section("AUGMENTATION RESULTS")
-
-        col1,col2 = st.columns(2)
-        with col1:
-            cat=aug_df["Category"].value_counts().reset_index()
-            cat.columns=["Category","Count"]
-            cat["short"]=cat["Category"].str.split(" ").str[0]
-            fig=px.bar(cat,x="short",y="Count",title="Augmented Rows per Category",
-                       color_discrete_sequence=["#2563eb"])
-            fig.update_layout(**PLOT_BASE,height=280)
-            st.plotly_chart(fig,use_container_width=True)
-        with col2:
-            sub=aug_df["Subtype"].value_counts().head(10).reset_index()
-            sub.columns=["Subtype","Count"]
-            fig2=px.bar(sub,x="Count",y="Subtype",orientation="h",
-                        title="Top 10 Subtypes by Row Count",
-                        color_discrete_sequence=["#6366f1"])
-            fig2.update_layout(**PLOT_BASE,height=280)
-            st.plotly_chart(fig2,use_container_width=True)
+        section(f"AUGMENTATION RESULTS — {len(aug_df)} ROWS")
 
         st.dataframe(
             aug_df[["A_Code","Category","Subtype","original_question",
                     "Augmented Roleplay","Augmented Storyline"]],
-            use_container_width=True, height=360)
+            use_container_width=True, height=420
+        )
+
+        # Download
+        import io as _io
+        buf = _io.BytesIO()
+        aug_df.to_excel(buf, index=False)
+        st.download_button(
+            label="⬇ Download Augmentation Results",
+            data=buf.getvalue(),
+            file_name="step2_augmentation.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
 
 
 # ══════════════════════════════════════════════════════════════════════════════
