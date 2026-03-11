@@ -671,41 +671,116 @@ elif page == "augment":
         unsafe_allow_html=True
     )
     st.markdown("#### Select Questions & Ontology Codes to Augment")
-    st.caption("Tick the questions and ontology subtypes you want to run. Leave all unticked to run everything.")
+    st.caption("Use the controls below to select questions and ontology codes. Only selected items will be augmented.")
 
     col_q, col_o = st.columns(2, gap="large")
 
+    questions = df["original_question"].tolist() if "original_question" in df.columns else []
+
+    # ── Init selection state
+    if "sel_questions" not in st.session_state:
+        st.session_state.sel_questions = []
+    if "sel_codes" not in st.session_state:
+        st.session_state.sel_codes = []
+
     with col_q:
         st.markdown("**📄 Input Questions**")
-        questions = df["original_question"].tolist() if "original_question" in df.columns else []
-        select_all_q = st.checkbox("Select All Questions", value=True, key="sel_all_q")
-        selected_questions = []
-        for i, q in enumerate(questions):
-            checked = st.checkbox(
-                f"Q{i+1}: {q[:80]}{'…' if len(q)>80 else ''}",
-                value=select_all_q,
-                key=f"q_chk_{i}"
-            )
-            if checked:
-                selected_questions.append(i)
+
+        # Search + bulk controls
+        q_search = st.text_input("🔍 Search questions", "", key="q_search")
+        qa, qb, qc = st.columns(3)
+        if qa.button("☑ Select All",   key="q_sel_all",   use_container_width=True):
+            st.session_state.sel_questions = list(range(len(questions)))
+            st.rerun()
+        if qb.button("☐ Deselect All", key="q_desel_all", use_container_width=True):
+            st.session_state.sel_questions = []
+            st.rerun()
+        if qc.button("⇅ Invert",       key="q_invert",    use_container_width=True):
+            all_idx = set(range(len(questions)))
+            st.session_state.sel_questions = list(all_idx - set(st.session_state.sel_questions))
+            st.rerun()
+
+        st.markdown(
+            f'<div style="font-size:11px;color:#64748b;margin:6px 0 8px">'
+            f'{len(st.session_state.sel_questions)} / {len(questions)} selected</div>',
+            unsafe_allow_html=True
+        )
+
+        filtered_q = [(i, q) for i, q in enumerate(questions)
+                      if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
+
+        q_container = st.container(height=320)
+        with q_container:
+            for i, q in filtered_q:
+                checked = i in st.session_state.sel_questions
+                label   = f"**Q{i+1}** — {q[:90]}{'…' if len(q)>90 else ''}"
+                new_val = st.checkbox(label, value=checked, key=f"q_{i}")
+                if new_val and i not in st.session_state.sel_questions:
+                    st.session_state.sel_questions.append(i)
+                elif not new_val and i in st.session_state.sel_questions:
+                    st.session_state.sel_questions.remove(i)
 
     with col_o:
         st.markdown("**🗂 Ontology Codes**")
-        select_all_o = st.checkbox("Select All Ontology Codes", value=True, key="sel_all_o")
-        selected_codes = []
-        for code, meta in ont_map.items():
-            checked = st.checkbox(
-                f"{code} — {meta['subtype']}  ·  *{meta['category'].split(' ',1)[1] if ' ' in meta['category'] else meta['category']}*",
-                value=select_all_o,
-                key=f"o_chk_{code}"
-            )
-            if checked:
-                selected_codes.append(code)
+
+        # Search + bulk controls
+        o_search = st.text_input("🔍 Search ontology", "", key="o_search")
+        oa, ob, oc = st.columns(3)
+        if oa.button("☑ Select All",   key="o_sel_all",   use_container_width=True):
+            st.session_state.sel_codes = list(ont_map.keys())
+            st.rerun()
+        if ob.button("☐ Deselect All", key="o_desel_all", use_container_width=True):
+            st.session_state.sel_codes = []
+            st.rerun()
+        if oc.button("⇅ Invert",       key="o_invert",    use_container_width=True):
+            all_codes_set = set(ont_map.keys())
+            st.session_state.sel_codes = list(all_codes_set - set(st.session_state.sel_codes))
+            st.rerun()
+
+        st.markdown(
+            f'<div style="font-size:11px;color:#64748b;margin:6px 0 8px">'
+            f'{len(st.session_state.sel_codes)} / {len(ont_map)} selected</div>',
+            unsafe_allow_html=True
+        )
+
+        filtered_o = {k: v for k, v in ont_map.items()
+                      if o_search.lower() in k.lower()
+                      or o_search.lower() in v["subtype"].lower()
+                      or o_search.lower() in v["category"].lower()
+                      } if o_search else ont_map
+
+        o_container = st.container(height=320)
+        with o_container:
+            # Group by category
+            categories_seen = {}
+            for code, meta in filtered_o.items():
+                cat = meta["category"]
+                if cat not in categories_seen:
+                    categories_seen[cat] = []
+                categories_seen[cat].append((code, meta))
+
+            for cat, items in categories_seen.items():
+                st.markdown(
+                    f'<div style="font-size:11px;font-weight:700;color:#2563eb;'
+                    f'margin:10px 0 4px;text-transform:uppercase;letter-spacing:0.05em">'
+                    f'{cat}</div>',
+                    unsafe_allow_html=True
+                )
+                for code, meta in items:
+                    checked = code in st.session_state.sel_codes
+                    label   = f"`{code}` — {meta['subtype']}"
+                    new_val = st.checkbox(label, value=checked, key=f"o_{code}")
+                    if new_val and code not in st.session_state.sel_codes:
+                        st.session_state.sel_codes.append(code)
+                    elif not new_val and code in st.session_state.sel_codes:
+                        st.session_state.sel_codes.remove(code)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    rows_to_use  = df.iloc[selected_questions] if selected_questions else df.iloc[[]]
-    codes_to_use = selected_codes
+    selected_questions = st.session_state.sel_questions
+    selected_codes     = st.session_state.sel_codes
+    rows_to_use        = df.iloc[selected_questions].reset_index(drop=True) if selected_questions else df.iloc[[]]
+    codes_to_use       = selected_codes
 
     st.info(f"**{len(rows_to_use)}** question(s) × **{len(codes_to_use)}** ontology code(s) selected")
 
