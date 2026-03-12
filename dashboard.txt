@@ -648,7 +648,7 @@ elif page == "augment":
 
     col_q, col_o = st.columns(2, gap="large")
 
-    # ── QUESTIONS COLUMN (unchanged logic) ──
+    # ── QUESTIONS COLUMN ──
     with col_q:
         st.markdown(
             '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
@@ -656,29 +656,50 @@ elif page == "augment":
             '📄 Input Questions</div>', unsafe_allow_html=True)
 
         q_search = st.text_input("🔍 Search questions", "", key="q_search")
-        all_q = len(st.session_state.sel_questions) == len(questions) and len(questions) > 0
-        mq = st.checkbox("Select All Questions", value=all_q, key="master_q")
-        if mq and not all_q:
-            st.session_state.sel_questions = list(range(len(questions))); st.rerun()
-        elif not mq and all_q:
-            st.session_state.sel_questions = []; st.rerun()
-
-        st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
 
         filtered_q = [(i, q) for i, q in enumerate(questions)
                       if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
+        filtered_q_idx = [i for i, _ in filtered_q]
+
+        all_filtered_selected = all(i in st.session_state.sel_questions for i in filtered_q_idx) and len(filtered_q_idx) > 0
+
+        def on_master_q():
+            if st.session_state["_master_q"]:
+                for i in filtered_q_idx:
+                    if i not in st.session_state.sel_questions:
+                        st.session_state.sel_questions.append(i)
+            else:
+                st.session_state.sel_questions = [
+                    i for i in st.session_state.sel_questions if i not in filtered_q_idx]
+
+        st.checkbox(
+            f"Select All Questions ({len(filtered_q_idx)})",
+            value=all_filtered_selected,
+            key="_master_q",
+            on_change=on_master_q)
+
+        st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
+
         with st.container(height=300):
             for i, q in filtered_q:
-                checked = i in st.session_state.sel_questions
-                val = st.checkbox(
-                    f"Q{i+1} — {q[:85]}{'…' if len(q) > 85 else ''}",
-                    value=checked, key=f"q_{i}")
-                if val and i not in st.session_state.sel_questions:
-                    st.session_state.sel_questions.append(i)
-                elif not val and i in st.session_state.sel_questions:
-                    st.session_state.sel_questions.remove(i)
+                is_checked = i in st.session_state.sel_questions
 
-    # ── CATEGORIES COLUMN — checkbox logic driven purely by buttons ──
+                def on_q_change(idx=i):
+                    key = f"_q_{idx}"
+                    if st.session_state[key]:
+                        if idx not in st.session_state.sel_questions:
+                            st.session_state.sel_questions.append(idx)
+                    else:
+                        st.session_state.sel_questions = [
+                            x for x in st.session_state.sel_questions if x != idx]
+
+                st.checkbox(
+                    f"Q{i+1} — {q[:85]}{'…' if len(q) > 85 else ''}",
+                    value=is_checked,
+                    key=f"_q_{i}",
+                    on_change=on_q_change)
+
+    # ── CATEGORIES COLUMN ──
     with col_o:
         st.markdown(
             '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
@@ -688,48 +709,53 @@ elif page == "augment":
         o_search = st.text_input("🔍 Search categories / subtypes", "", key="o_search")
 
         all_codes_list = list(ont_map.keys())
-        all_selected   = set(all_codes_list) == set(st.session_state.sel_codes) and len(all_codes_list) > 0
-        none_selected  = len(st.session_state.sel_codes) == 0
 
-        # Master row: Select All / Clear All buttons
-        ma_col, mc_col, info_col = st.columns([1, 1, 2])
-        with ma_col:
-            if st.button("☑ Select All", key="master_sel_all", use_container_width=True):
-                st.session_state.sel_codes = list(all_codes_list)
-                st.rerun()
-        with mc_col:
-            if st.button("☐ Clear All", key="master_clear_all", use_container_width=True):
-                st.session_state.sel_codes = []
-                st.rerun()
-        with info_col:
-            n_sel_cats = sum(1 for cat, codes in cat_codes.items()
-                             if all(c in st.session_state.sel_codes for c in codes))
-            st.markdown(
-                f'<div style="font-size:11px;color:#64748b;padding-top:6px">'
-                f'<b>{n_sel_cats}</b>/{len(cat_codes)} cats · '
-                f'<b>{len(st.session_state.sel_codes)}</b>/{len(all_codes_list)} subtypes</div>',
-                unsafe_allow_html=True)
+        # Build filtered cats first (needed for master checkbox scope)
+        filtered_cats = {}
+        for cat, codes in cat_codes.items():
+            items = []
+            for code in codes:
+                meta = ont_map[code]
+                if (o_search == "" or
+                        o_search.lower() in cat.lower() or
+                        o_search.lower() in meta["subtype"].lower() or
+                        o_search.lower() in code.lower()):
+                    items.append((code, meta))
+            if items:
+                filtered_cats[cat] = items
+
+        filtered_codes = [code for items in filtered_cats.values() for code, _ in items]
+        all_filtered_cat_selected = (
+            len(filtered_codes) > 0 and
+            all(c in st.session_state.sel_codes for c in filtered_codes))
+
+        def on_master_o():
+            if st.session_state["_master_o"]:
+                for c in filtered_codes:
+                    if c not in st.session_state.sel_codes:
+                        st.session_state.sel_codes.append(c)
+            else:
+                st.session_state.sel_codes = [
+                    c for c in st.session_state.sel_codes if c not in filtered_codes]
+
+        st.checkbox(
+            f"Select All Categories ({len(filtered_cats)})",
+            value=all_filtered_cat_selected,
+            key="_master_o",
+            on_change=on_master_o)
+
+        n_sel_cats = sum(1 for cat, items in filtered_cats.items()
+                         if all(c in st.session_state.sel_codes for c, _ in items))
+        st.caption(
+            f"{n_sel_cats}/{len(filtered_cats)} categories · "
+            f"{len([c for c in filtered_codes if c in st.session_state.sel_codes])}/{len(filtered_codes)} subtypes selected")
+
+        sel_set = set(st.session_state.sel_codes)
 
         with st.container(height=300):
             if not ont_map:
                 st.info("No ontology loaded.")
             else:
-                # Build filtered view
-                filtered_cats = {}
-                for cat, codes in cat_codes.items():
-                    items = []
-                    for code in codes:
-                        meta = ont_map[code]
-                        if (o_search == "" or
-                                o_search.lower() in cat.lower() or
-                                o_search.lower() in meta["subtype"].lower() or
-                                o_search.lower() in code.lower()):
-                            items.append((code, meta))
-                    if items:
-                        filtered_cats[cat] = items
-
-                sel_set = set(st.session_state.sel_codes)  # use a set for O(1) lookup
-
                 for cat in sorted(filtered_cats.keys()):
                     items        = filtered_cats[cat]
                     codes_in_cat = [code for code, _ in items]
@@ -740,24 +766,27 @@ elif page == "augment":
                     indicator = "●" if cat_all_sel else "◑" if cat_any_sel else "○"
                     ind_color = "#16a34a" if cat_all_sel else "#f59e0b" if cat_any_sel else "#94a3b8"
 
-                    # ── Category row: two small buttons (Select / Clear) + label ──
-                    cs_col, cc_col, cl_col = st.columns([0.18, 0.18, 0.64])
-                    with cs_col:
-                        if st.button("＋", key=f"cat_sel_{cat}",
-                                     help=f"Select all subtypes in {cat}",
-                                     use_container_width=True):
-                            for c in codes_in_cat:
+                    # ── Category checkbox row ──
+                    cat_chk_col, cat_lbl_col = st.columns([0.12, 0.88])
+
+                    def on_cat_change(c_codes=codes_in_cat, cat_name=cat):
+                        key = f"_cat_{cat_name}"
+                        if st.session_state[key]:
+                            for c in c_codes:
                                 if c not in st.session_state.sel_codes:
                                     st.session_state.sel_codes.append(c)
-                            st.rerun()
-                    with cc_col:
-                        if st.button("－", key=f"cat_clr_{cat}",
-                                     help=f"Clear all subtypes in {cat}",
-                                     use_container_width=True):
+                        else:
                             st.session_state.sel_codes = [
-                                c for c in st.session_state.sel_codes if c not in codes_in_cat]
-                            st.rerun()
-                    with cl_col:
+                                c for c in st.session_state.sel_codes if c not in c_codes]
+
+                    with cat_chk_col:
+                        st.checkbox(
+                            "cat", value=cat_all_sel,
+                            key=f"_cat_{cat}",
+                            label_visibility="collapsed",
+                            on_change=on_cat_change)
+
+                    with cat_lbl_col:
                         st.markdown(
                             f'<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 2px">'
                             f'<span style="font-size:12px;font-weight:700;color:#1e293b">'
@@ -771,20 +800,23 @@ elif page == "augment":
                     for code, meta in items:
                         is_checked = code in sel_set
                         sb_chk, sb_lbl = st.columns([0.12, 0.88])
+
+                        def on_sub_change(c=code):
+                            key = f"_sub_{c}"
+                            if st.session_state[key]:
+                                if c not in st.session_state.sel_codes:
+                                    st.session_state.sel_codes.append(c)
+                            else:
+                                st.session_state.sel_codes = [
+                                    x for x in st.session_state.sel_codes if x != c]
+
                         with sb_chk:
-                            # Use a button-style toggle so value is always in sync with sel_codes
-                            if st.button(
-                                "✓" if is_checked else "○",
-                                key=f"tog_{code}",
-                                help=code,
-                                use_container_width=True,
-                            ):
-                                if is_checked:
-                                    st.session_state.sel_codes = [
-                                        c for c in st.session_state.sel_codes if c != code]
-                                else:
-                                    st.session_state.sel_codes.append(code)
-                                st.rerun()
+                            st.checkbox(
+                                code, value=is_checked,
+                                key=f"_sub_{code}",
+                                label_visibility="collapsed",
+                                on_change=on_sub_change)
+
                         with sb_lbl:
                             st.markdown(
                                 f'<div style="margin-left:4px;padding:3px 0;font-size:11px;'
