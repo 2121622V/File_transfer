@@ -99,6 +99,7 @@ DEFAULTS = {
     "report_row": None, "last_report": None,
     "sel_questions": [], "sel_codes": [], "sel_categories": [],
     "aug_view_mode": "raw",
+    "governance_report": None,   # stores {root_causes, recommendations, generated_at}
     "azure_key":      os.getenv("AZURE_OPENAI_API_KEY", ""),
     "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
     "azure_version":  os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
@@ -122,6 +123,46 @@ def get_metric_status(v):
 
 def compute_global_status(row):
     return "Fail" if any(float(row.get(m, 0)) >= THRESHOLD for m in METRIC_KEYS) else "Pass"
+
+PRIORITY_COLORS = {"Critical": "#dc2626", "High": "#d97706", "Medium": "#2563eb"}
+METRIC_COLS     = ["Decision Flip", "Fairness Degradation", "Tone Inequality",
+                   "Safety_Drift", "Stereotype Injection"]
+
+def build_metrics_summary(edf: pd.DataFrame) -> list:
+    """Lightweight per-category summary passed to governance LLM prompts."""
+    summary = (edf.groupby("Category")[METRIC_COLS]
+                  .mean().round(4).reset_index())
+    fail_counts  = (edf[edf["Status"] == "Fail"]
+                    .groupby("Category").size().reset_index(name="fail_count"))
+    total_counts = edf.groupby("Category").size().reset_index(name="total_count")
+    summary = summary.merge(fail_counts,  on="Category", how="left")
+    summary = summary.merge(total_counts, on="Category", how="left")
+    summary["fail_count"]       = summary["fail_count"].fillna(0).astype(int)
+    summary["total_count"]      = summary["total_count"].fillna(0).astype(int)
+    summary["failure_rate_pct"] = (
+        (summary["fail_count"] / summary["total_count"] * 100).round(1).fillna(0))
+    return summary.to_dict("records")
+
+
+async def generate_root_causes(prompts: dict, metrics_summary: list) -> dict:
+    prompt = (prompts.get("root_cause_analysis", "")
+              .replace("{{metrics_summary}}", json.dumps(metrics_summary, indent=2)))
+    result = await call_llm(prompt, json_mode=True)
+    if not result or "root_causes" not in result:
+        return {"root_causes": []}
+    return result
+
+
+async def generate_governance_recs(prompts: dict, root_causes: dict,
+                                   metrics_summary: list) -> dict:
+    prompt = (prompts.get("governance_recommendations", "")
+              .replace("{{root_causes}}",     json.dumps(root_causes,     indent=2))
+              .replace("{{metrics_summary}}", json.dumps(metrics_summary, indent=2)))
+    result = await call_llm(prompt, json_mode=True)
+    if not result or "recommendations" not in result:
+        return {"recommendations": []}
+    return result
+
 
 def build_ontology_map(ontology):
     m = {}
@@ -274,11 +315,12 @@ with st.sidebar:
             st.session_state.page = key; st.rerun()
 
     st.markdown('<div style="padding:4px 10px 2px;font-size:9px;color:#475569 !important;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border-top:1px solid #1e293b;margin-top:4px;padding-top:8px">Results</div>', unsafe_allow_html=True)
-    if st.button("📊  Analysis", key="nav_analysis", use_container_width=True):
-        if st.session_state.eval_df is not None:
-            st.session_state.page = "analysis"; st.rerun()
-        else:
-            st.toast("Complete Evaluation first", icon="⚠️")
+    for key, icon, label in [("analysis", "📊", "Analysis"), ("insights", "💡", "LLM Insights")]:
+        if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
+            if st.session_state.eval_df is not None:
+                st.session_state.page = key; st.rerun()
+            else:
+                st.toast("Complete Evaluation first", icon="⚠️")
 
     creds_ok = all([st.session_state.azure_key, st.session_state.azure_endpoint, st.session_state.azure_deploy])
     st.markdown(
@@ -849,7 +891,7 @@ elif page == "evaluate":
                 edf["Status"]=edf.apply(compute_global_status,axis=1)
                 edf.insert(0,"id",range(1,len(edf)+1))
                 edf.to_excel(OUTPUT_DIR/"bias_results.xlsx",index=False)
-                st.session_state.eval_df=edf; st.success("✅ Evaluation complete!"); st.rerun()
+                st.session_state.eval_df=edf;         st.success("✅ Evaluation complete!"); st.rerun()
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1043,3 +1085,262 @@ elif page == "analysis":
         st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">🗂</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Category Summary</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Failure rates by category</div></div>',unsafe_allow_html=True)
         green_download("⬇ category_summary.xlsx",to_excel_bytes(cat_summary),"category_summary.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_all_cat")
     st.markdown('</div>',unsafe_allow_html=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # GOVERNANCE REPORT SECTION
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    gov = st.session_state.governance_report
+
+    pass  # Analysis page ends here — Insights page is separate
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: LLM INSIGHTS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "insights":
+    page_header("💡 LLM Insights",
+                "AI-generated root cause analysis and governance recommendations based on overall evaluation results.")
+
+    if st.session_state.eval_df is None:
+        st.warning("⬅ Complete the Evaluation step first."); st.stop()
+
+    edf     = st.session_state.eval_df
+    prompts = st.session_state.prompts or {}
+    gov     = st.session_state.governance_report
+
+    # ── Summary bar ──────────────────────────────────────────────────────────
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Total Records",    len(edf))
+    s2.metric("Categories",       edf["Category"].nunique())
+    s3.metric("Failed Records",   (edf["Status"] == "Fail").sum())
+    s4.metric("Overall Fail Rate",
+              f"{(edf['Status'] == 'Fail').sum() / len(edf) * 100:.1f}%")
+
+    st.divider()
+
+    # ── Two action buttons side by side ──────────────────────────────────────
+    col_rc, col_gov = st.columns(2, gap="large")
+
+    # ── BUTTON 1: Root Cause Analysis ────────────────────────────────────────
+    with col_rc:
+        rc_done = gov is not None and bool(gov.get("root_causes"))
+        st.markdown(
+            f'<div style="background:white;border:1px solid {"#bbf7d0" if rc_done else "#e2e8f0"};'
+            f'border-radius:12px;padding:18px 20px;border-left:4px solid {"#16a34a" if rc_done else "#6366f1"};'
+            f'margin-bottom:16px">'
+            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
+            f'🔍 Root Cause Analysis</div>'
+            f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
+            f'Identifies the top systemic root causes driving bias scores across '
+            f'all categories, with metric evidence and framework references.</div>'
+            f'{"<div style=margin-top:8px><span style=background:#f0fdf4;color:#16a34a;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0>✓ " + str(len(gov["root_causes"])) + " root causes generated</span></div>" if rc_done else ""}'
+            f'</div>',
+            unsafe_allow_html=True)
+
+        btn_rc = st.button(
+            "🔄 Regenerate Root Causes" if rc_done else "🔍 Generate Root Cause Analysis",
+            type="primary", key="btn_rc", use_container_width=True)
+
+        if btn_rc:
+            with st.spinner("Analysing root causes across all categories…"):
+                metrics_summary = build_metrics_summary(edf)
+                rc_raw = run_async(generate_root_causes(prompts, metrics_summary))
+
+            # preserve existing recommendations if any
+            existing_recs = gov.get("recommendations", []) if gov else []
+            existing_at   = gov.get("generated_at", "") if gov else ""
+            recs_at        = gov.get("gov_generated_at", "") if gov else ""
+
+            st.session_state.governance_report = {
+                "root_causes":       rc_raw.get("root_causes", []),
+                "recommendations":   existing_recs,
+                "generated_at":      __import__("datetime").datetime.now()
+                                     .strftime("%Y-%m-%d %H:%M:%S"),
+                "gov_generated_at":  recs_at,
+            }
+            st.success(f"✅ {len(rc_raw.get('root_causes', []))} root causes generated.")
+            st.rerun()
+
+    # ── BUTTON 2: Governance Recommendations ─────────────────────────────────
+    with col_gov:
+        gov_done = gov is not None and bool(gov.get("recommendations"))
+        st.markdown(
+            f'<div style="background:white;border:1px solid {"#bbf7d0" if gov_done else "#e2e8f0"};'
+            f'border-radius:12px;padding:18px 20px;border-left:4px solid {"#16a34a" if gov_done else "#f59e0b"};'
+            f'margin-bottom:16px">'
+            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
+            f'📋 Governance Recommendations</div>'
+            f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
+            f'Generates 5 prioritised, actionable governance recommendations '
+            f'with expected impact and AI governance framework citations.</div>'
+            f'{"<div style=margin-top:8px><span style=background:#f0fdf4;color:#16a34a;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0>✓ " + str(len(gov["recommendations"])) + " recommendations generated</span></div>" if gov_done else ""}'
+            f'</div>',
+            unsafe_allow_html=True)
+
+        btn_gov = st.button(
+            "🔄 Regenerate Recommendations" if gov_done else "📋 Generate Governance Recommendations",
+            type="primary", key="btn_gov", use_container_width=True)
+
+        if btn_gov:
+            with st.spinner("Generating governance recommendations…"):
+                metrics_summary = build_metrics_summary(edf)
+                # use existing root causes if available, else generate fresh
+                existing_rc = gov.get("root_causes", []) if gov else []
+                if not existing_rc:
+                    with st.spinner("No root causes found — generating first…"):
+                        rc_raw      = run_async(generate_root_causes(prompts, metrics_summary))
+                        existing_rc = rc_raw.get("root_causes", [])
+                else:
+                    rc_raw = {"root_causes": existing_rc}
+
+                recs_raw = run_async(generate_governance_recs(
+                    prompts, rc_raw, metrics_summary))
+
+            recs = recs_raw.get("recommendations", [])
+            for rec in recs:
+                rec["priority_color"] = PRIORITY_COLORS.get(
+                    rec.get("priority", "Medium"), "#64748b")
+
+            existing_at = gov.get("generated_at", "") if gov else ""
+            st.session_state.governance_report = {
+                "root_causes":      existing_rc,
+                "recommendations":  recs,
+                "generated_at":     existing_at,
+                "gov_generated_at": __import__("datetime").datetime.now()
+                                    .strftime("%Y-%m-%d %H:%M:%S"),
+            }
+            st.success(f"✅ {len(recs)} recommendations generated.")
+            st.rerun()
+
+    # ── Results ───────────────────────────────────────────────────────────────
+    if gov and (gov.get("root_causes") or gov.get("recommendations")):
+        st.divider()
+
+        # ── ROOT CAUSES DISPLAY ───────────────────────────────────────────────
+        if gov.get("root_causes"):
+            section_label(f"ROOT CAUSE ANALYSIS  ·  {len(gov['root_causes'])} findings")
+
+            for i, rc in enumerate(gov["root_causes"], 1):
+                metric  = rc.get("dominant_metric", "")
+                m_idx   = METRIC_KEYS.index(metric) if metric in METRIC_KEYS else 0
+                m_color = M_COLORS[m_idx]
+                ref     = rc.get("framework_reference", {})
+
+                st.markdown(
+                    f'<div style="background:white;border:1px solid #e2e8f0;'
+                    f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
+                    f'border-left:4px solid {m_color}">'
+
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+                    f'<div style="display:flex;align-items:center;gap:10px">'
+                    f'<span style="background:#f1f5f9;color:#475569;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px">#{i}</span>'
+                    f'<span style="font-size:14px;font-weight:700;color:#0f172a">{rc.get("category","—")}</span>'
+                    f'</div>'
+                    f'<span style="background:{m_color}20;color:{m_color};padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid {m_color}40">{metric}</span>'
+                    f'</div>'
+
+                    f'<div style="background:#f8fafc;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;color:#475569">'
+                    f'<span style="font-weight:700;color:#0f172a">Evidence: </span>{rc.get("score_evidence","—")}</div>'
+
+                    f'<div style="margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Root Cause</div>'
+                    f'<div style="font-size:13px;color:#1e293b;line-height:1.7">{rc.get("root_cause_explanation","—")}</div></div>'
+
+                    f'<div style="background:#fef2f2;border-radius:8px;padding:10px 14px;margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">User Impact</div>'
+                    f'<div style="font-size:12px;color:#7f1d1d;line-height:1.6">{rc.get("user_impact","—")}</div></div>'
+
+                    f'<div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9">'
+                    f'<span style="font-size:16px">📋</span>'
+                    f'<div><div style="font-size:11px;font-weight:700;color:#2563eb">{ref.get("name","—")}</div>'
+                    f'<div style="font-size:11px;color:#64748b">{ref.get("description","")}</div>'
+                    f'{"<a href=" + chr(39) + ref["url"] + chr(39) + " target=_blank style=font-size:11px;color:#2563eb>" + ref["url"] + "</a>" if ref.get("url") else ""}'
+                    f'</div></div></div>',
+                    unsafe_allow_html=True)
+
+            # Download root causes
+            rc_rows = []
+            for rc in gov["root_causes"]:
+                ref = rc.get("framework_reference", {})
+                rc_rows.append({
+                    "Category":           rc.get("category", ""),
+                    "Dominant Metric":    rc.get("dominant_metric", ""),
+                    "Score Evidence":     rc.get("score_evidence", ""),
+                    "Root Cause":         rc.get("root_cause_explanation", ""),
+                    "User Impact":        rc.get("user_impact", ""),
+                    "Framework":          ref.get("name", ""),
+                    "Framework Desc":     ref.get("description", ""),
+                    "Framework URL":      ref.get("url", ""),
+                })
+            _, dl1 = st.columns([3, 1])
+            with dl1:
+                green_download("⬇ Download Root Causes",
+                               to_excel_bytes(pd.DataFrame(rc_rows)),
+                               "root_cause_analysis.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_rc")
+
+        # ── RECOMMENDATIONS DISPLAY ───────────────────────────────────────────
+        if gov.get("recommendations"):
+            st.markdown("<br>", unsafe_allow_html=True)
+            section_label(f"GOVERNANCE RECOMMENDATIONS  ·  {len(gov['recommendations'])} actions")
+
+            for rec in gov["recommendations"]:
+                priority = rec.get("priority", "Medium")
+                p_color  = rec.get("priority_color", "#64748b")
+                ref      = rec.get("framework_reference", {})
+                metric   = rec.get("metric", "")
+                m_idx    = METRIC_KEYS.index(metric) if metric in METRIC_KEYS else 0
+                m_color  = M_COLORS[m_idx]
+
+                st.markdown(
+                    f'<div style="background:white;border:1px solid #e2e8f0;'
+                    f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
+                    f'border-left:4px solid {p_color}">'
+
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+                    f'<div style="display:flex;align-items:center;gap:8px">'
+                    f'<span style="background:{p_color};color:white;padding:3px 12px;border-radius:20px;font-size:10px;font-weight:800">{priority}</span>'
+                    f'<span style="font-size:13px;font-weight:700;color:#0f172a">{rec.get("category","—")}</span>'
+                    f'</div>'
+                    f'<span style="background:{m_color}20;color:{m_color};padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid {m_color}40">{metric}</span>'
+                    f'</div>'
+
+                    f'<div style="margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Action</div>'
+                    f'<div style="font-size:13px;color:#1e293b;line-height:1.7">{rec.get("recommendation","—")}</div></div>'
+
+                    f'<div style="background:#f0fdf4;border-radius:8px;padding:10px 14px;margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Expected Impact</div>'
+                    f'<div style="font-size:12px;color:#14532d;line-height:1.6">{rec.get("expected_impact","—")}</div></div>'
+
+                    f'<div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9">'
+                    f'<span style="font-size:16px">📋</span>'
+                    f'<div><div style="font-size:11px;font-weight:700;color:#2563eb">{ref.get("name","—")}</div>'
+                    f'<div style="font-size:11px;color:#64748b">{ref.get("description","")}</div>'
+                    f'{"<a href=" + chr(39) + ref["url"] + chr(39) + " target=_blank style=font-size:11px;color:#2563eb>" + ref["url"] + "</a>" if ref.get("url") else ""}'
+                    f'</div></div></div>',
+                    unsafe_allow_html=True)
+
+            # Download recommendations
+            rec_rows = []
+            for rec in gov["recommendations"]:
+                ref = rec.get("framework_reference", {})
+                rec_rows.append({
+                    "Priority":           rec.get("priority", ""),
+                    "Category":           rec.get("category", ""),
+                    "Metric":             rec.get("metric", ""),
+                    "Recommendation":     rec.get("recommendation", ""),
+                    "Expected Impact":    rec.get("expected_impact", ""),
+                    "Framework":          ref.get("name", ""),
+                    "Framework Desc":     ref.get("description", ""),
+                    "Framework URL":      ref.get("url", ""),
+                })
+            _, dl2 = st.columns([3, 1])
+            with dl2:
+                green_download("⬇ Download Recommendations",
+                               to_excel_bytes(pd.DataFrame(rec_rows)),
+                               "governance_recommendations.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               key="dl_gov")
