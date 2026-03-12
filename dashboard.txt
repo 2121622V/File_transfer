@@ -417,14 +417,87 @@ if page == "upload":
     page_header("📂 Upload Input Files",
                 "Upload your dataset, ontology and prompt files to begin the bias detection pipeline.")
 
-    # ── FILE CARD COMPONENT ──
-    def upload_card_v2(title, icon, ext_badge, description, required_note,
-                       file_key, data_key, bytes_key, fname_key,
-                       is_yaml=False, yaml_sub=None, auto_file=None):
+    # ── PROCESS UPLOADS FIRST (before any rendering) ──────────────────────────
+    # This ensures session state is updated before the page renders cards/footer.
 
-        loaded = st.session_state[data_key] is not None
-        border_color = "#bbf7d0" if loaded else "#e2e8f0"
-        accent = "#16a34a" if loaded else "#2563eb"
+    def _process_upload(upl, bytes_key, fname_key, data_key, is_yaml, yaml_sub):
+        """Read an uploaded file into session state and trigger rerun."""
+        raw = upl.read()
+        st.session_state[bytes_key] = raw
+        st.session_state[fname_key] = upl.name
+        if is_yaml:
+            try:
+                parsed = yaml.safe_load(raw)
+                st.session_state[data_key] = parsed[yaml_sub] if yaml_sub else parsed
+            except Exception as e:
+                st.error(f"YAML parse error: {e}")
+                return False
+        else:
+            try:
+                loaded_df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+                             if upl.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw)))
+                st.session_state[data_key] = loaded_df
+            except Exception as e:
+                st.error(f"Read error: {e}")
+                return False
+        return True
+
+    def _auto_load_yaml(auto_file, bytes_key, fname_key, data_key, yaml_sub):
+        """Auto-load a YAML file from disk if not yet loaded."""
+        if st.session_state[data_key] is not None:
+            return
+        path = BASE_DIR / auto_file
+        if path.exists():
+            raw = open(path, "rb").read()
+            try:
+                parsed = yaml.safe_load(raw)
+                st.session_state[bytes_key] = raw
+                st.session_state[fname_key] = auto_file
+                st.session_state[data_key]  = parsed[yaml_sub] if yaml_sub else parsed
+            except Exception:
+                pass
+
+    # Auto-load YAMLs from disk (runs every render, harmless if already loaded)
+    _auto_load_yaml("ontology.yaml", "ont_bytes",  "ont_filename",  "ontology", None)
+    _auto_load_yaml("prompts.yaml",  "prm_bytes",  "prm_filename",  "prompts",  "prompts")
+
+    # ── FILE UPLOADERS (hidden labels, processed immediately) ──────────────────
+    # We render the uploaders in a temporary invisible block first so Streamlit
+    # registers them, processes their values, and we can rerun before drawing UI.
+
+    with st.container():
+        _upl_inp = st.file_uploader("inp",      type=None, key="inp_up",      label_visibility="collapsed")
+        _upl_ont = st.file_uploader("ontology", type=None, key="ontology_up", label_visibility="collapsed")
+        _upl_prm = st.file_uploader("prompts",  type=None, key="prompts_up",  label_visibility="collapsed")
+
+    _rerun_needed = False
+    if _upl_inp and (st.session_state.get("input_filename") != _upl_inp.name or st.session_state.input_df is None):
+        if _process_upload(_upl_inp, "input_bytes", "input_filename", "input_df", False, None):
+            _rerun_needed = True
+    if _upl_ont and st.session_state.get("ont_filename") != _upl_ont.name:
+        if _process_upload(_upl_ont, "ont_bytes", "ont_filename", "ontology", True, None):
+            _rerun_needed = True
+    if _upl_prm and st.session_state.get("prm_filename") != _upl_prm.name:
+        if _process_upload(_upl_prm, "prm_bytes", "prm_filename", "prompts", True, "prompts"):
+            _rerun_needed = True
+    if _rerun_needed:
+        st.rerun()
+
+    # ── FILE CARD (display only — no upload logic here) ──────────────────────
+    def upload_card_display(title, icon, ext_badge, description, required_note,
+                            bytes_key, fname_key, data_key, uploader_key):
+        is_loaded    = st.session_state[data_key] is not None
+        border_color = "#bbf7d0" if is_loaded else "#e2e8f0"
+        accent       = "#16a34a" if is_loaded else "#2563eb"
+        header_bg    = "#f0fdf4" if is_loaded else "#f8fafc"
+
+        status_badge = (
+            '<span style="background:#f0fdf4;color:#16a34a;padding:2px 10px;border-radius:20px;'
+            'font-size:10px;font-weight:700;border:1px solid #bbf7d0">✓ Loaded</span>'
+            if is_loaded else
+            '<span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:20px;'
+            'font-size:10px;font-weight:700;border:1px solid #fde68a">Required</span>'
+        )
 
         st.markdown(
             f'<div style="background:white;border:1px solid {border_color};border-radius:12px;'
@@ -432,15 +505,7 @@ if page == "upload":
             f'box-shadow:0 1px 4px rgba(0,0,0,0.04);">',
             unsafe_allow_html=True)
 
-        # — Header row —
-        status_badge = (
-            '<span style="background:#f0fdf4;color:#16a34a;padding:2px 10px;border-radius:20px;'
-            'font-size:10px;font-weight:700;border:1px solid #bbf7d0">✓ Loaded</span>'
-            if loaded else
-            '<span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:20px;'
-            'font-size:10px;font-weight:700;border:1px solid #fde68a">Required</span>'
-        )
-        header_bg = "#f0fdf4" if loaded else "#f8fafc"
+        # Header
         st.markdown(
             f'<div style="padding:14px 20px 10px;border-bottom:1px solid #f1f5f9;background:{header_bg};">'
             f'<div style="display:flex;align-items:center;justify-content:space-between">'
@@ -457,29 +522,28 @@ if page == "upload":
             f'</div></div></div>',
             unsafe_allow_html=True)
 
-        # — Body: uploader + status —
+        # Body
         st.markdown('<div style="padding:16px 20px;">', unsafe_allow_html=True)
-
         up_col, info_col = st.columns([3, 2])
 
         with up_col:
             st.markdown(
-                f'<div style="font-size:11px;font-weight:600;color:#64748b;'
-                f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Upload File</div>',
+                '<div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;'
+                'letter-spacing:.05em;margin-bottom:6px">Upload File</div>',
                 unsafe_allow_html=True)
-            upl = st.file_uploader(title, type=None, key=file_key, label_visibility="collapsed")
+            # Re-render the same uploader key so user sees the widget
+            st.file_uploader(f"Re-upload {title}", type=None,
+                             key=f"_redisplay_{uploader_key}",
+                             label_visibility="collapsed")
 
         with info_col:
             st.markdown(
-                f'<div style="font-size:11px;font-weight:600;color:#64748b;'
-                f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Status</div>',
+                '<div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;'
+                'letter-spacing:.05em;margin-bottom:6px">Status</div>',
                 unsafe_allow_html=True)
-
-            fname = st.session_state.get(fname_key)
+            fname  = st.session_state.get(fname_key)
             fbytes = st.session_state.get(bytes_key)
-
-            if loaded and fname:
-                # File name
+            if is_loaded and fname:
                 st.markdown(
                     f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;'
                     f'padding:10px 14px;margin-bottom:8px">'
@@ -490,12 +554,11 @@ if page == "upload":
                     f'<div style="font-size:10px;color:#86efac;margin-top:1px">{required_note}</div>'
                     f'</div></div></div>',
                     unsafe_allow_html=True)
-
-                # Download button
                 if fbytes:
                     mime = ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            if fname.endswith(".xlsx") else "text/csv" if fname.endswith(".csv") else "text/plain")
-                    green_download("⬇ Download File", fbytes, fname, mime, key=f"dl_{file_key}")
+                            if fname.endswith(".xlsx") else
+                            "text/csv" if fname.endswith(".csv") else "text/plain")
+                    green_download("⬇ Download File", fbytes, fname, mime, key=f"dl_{uploader_key}")
             else:
                 st.markdown(
                     f'<div style="background:#fafafa;border:1px dashed #cbd5e1;border-radius:8px;'
@@ -506,37 +569,9 @@ if page == "upload":
                     f'</div>',
                     unsafe_allow_html=True)
 
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)  # close card
+        st.markdown('</div></div>', unsafe_allow_html=True)
 
-        # — Process upload —
-        if upl:
-            raw = upl.read()
-            st.session_state[bytes_key] = raw
-            st.session_state[fname_key] = upl.name
-            if is_yaml:
-                parsed = yaml.safe_load(raw)
-                st.session_state[data_key] = parsed[yaml_sub] if yaml_sub else parsed
-            else:
-                try:
-                    loaded_df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
-                                 if upl.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw)))
-                    st.session_state[data_key] = loaded_df
-                except Exception as e:
-                    st.error(f"Read error: {e}")
-            st.rerun()
-
-        # — Auto-load YAML —
-        if is_yaml and st.session_state[data_key] is None and auto_file:
-            path = BASE_DIR / auto_file
-            if path.exists():
-                raw = open(path, "rb").read()
-                parsed = yaml.safe_load(raw)
-                st.session_state[bytes_key] = raw
-                st.session_state[fname_key] = auto_file
-                st.session_state[data_key] = parsed[yaml_sub] if yaml_sub else parsed
-
-        # — Preview expander —
+        # Preview
         cur_bytes = st.session_state.get(bytes_key)
         cur_fname = st.session_state.get(fname_key)
         if cur_bytes and cur_fname:
@@ -551,38 +586,37 @@ if page == "upload":
                 else:
                     st.code(cur_bytes.decode("utf-8", "ignore"), language="yaml")
 
-    # ── RENDER CARDS ──
-    upload_card_v2(
+    # ── RENDER CARDS ──────────────────────────────────────────────────────────
+    upload_card_display(
         "Input Dataset", "📄", ".xlsx / .csv",
         "Must contain original_question and expected_output columns",
         "Columns: original_question, expected_output",
-        "inp_up", "input_df", "input_bytes", "input_filename")
+        "input_bytes", "input_filename", "input_df", "inp_up")
 
-    upload_card_v2(
+    upload_card_display(
         "Bias Ontology", "🗂", ".yaml / .yml",
         "Defines bias categories, subtypes, and detection patterns",
         "Auto-detected if ontology.yaml exists in project root",
-        "ontology_up", "ontology", "ont_bytes", "ont_filename",
-        is_yaml=True, auto_file="ontology.yaml")
+        "ont_bytes", "ont_filename", "ontology", "ontology_up")
 
-    upload_card_v2(
+    upload_card_display(
         "Prompt Templates", "📝", ".yaml / .yml",
         "Augmentation, assistant response, and evaluation prompt templates",
         "Auto-detected if prompts.yaml exists in project root",
-        "prompts_up", "prompts", "prm_bytes", "prm_filename",
-        is_yaml=True, yaml_sub="prompts", auto_file="prompts.yaml")
+        "prm_bytes", "prm_filename", "prompts", "prompts_up")
 
-    # ── STATUS FOOTER ──
+    # ── STATUS FOOTER ─────────────────────────────────────────────────────────
     st.divider()
-    loaded_flags = [st.session_state.input_df is not None,
-                    st.session_state.ontology is not None,
-                    st.session_state.prompts is not None]
+    loaded_flags = [
+        st.session_state.input_df is not None,
+        st.session_state.ontology is not None,
+        st.session_state.prompts  is not None,
+    ]
     labels = ["Input Dataset", "Ontology", "Prompts"]
     icons  = ["📄", "🗂", "📝"]
-
-    # Summary bar
     n_done = sum(loaded_flags)
     bar_color = "#16a34a" if n_done == 3 else "#f59e0b" if n_done > 0 else "#e2e8f0"
+
     st.markdown(
         f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
         f'padding:14px 20px;margin-bottom:14px">'
@@ -591,18 +625,21 @@ if page == "upload":
         f'<div style="font-size:12px;font-weight:600;color:{bar_color}">{n_done} / 3 files loaded</div>'
         f'</div>'
         f'<div style="background:#f1f5f9;border-radius:4px;height:6px;overflow:hidden">'
-        f'<div style="width:{n_done/3*100:.0f}%;height:100%;background:{bar_color};border-radius:4px;transition:width .3s"></div>'
+        f'<div style="width:{n_done/3*100:.0f}%;height:100%;background:{bar_color};'
+        f'border-radius:4px"></div>'
         f'</div></div>',
         unsafe_allow_html=True)
 
     c1, c2, c3 = st.columns(3)
     for col, lbl, icon, ok in zip([c1, c2, c3], labels, icons, loaded_flags):
         col.markdown(
-            f'<div style="background:{"#f0fdf4" if ok else "#fafafa"};border:1px solid {"#bbf7d0" if ok else "#e2e8f0"};'
+            f'<div style="background:{"#f0fdf4" if ok else "#fafafa"};'
+            f'border:1px solid {"#bbf7d0" if ok else "#e2e8f0"};'
             f'border-radius:10px;padding:16px;text-align:center">'
             f'<div style="font-size:24px;margin-bottom:6px">{"✅" if ok else icon}</div>'
             f'<div style="font-size:12px;font-weight:700;color:{"#15803d" if ok else "#94a3b8"}">{lbl}</div>'
-            f'<div style="font-size:10px;margin-top:3px;color:{"#86efac" if ok else "#cbd5e1"}">{"Ready" if ok else "Pending"}</div>'
+            f'<div style="font-size:10px;margin-top:3px;color:{"#86efac" if ok else "#cbd5e1"}">'
+            f'{"Ready" if ok else "Pending"}</div>'
             f'</div>',
             unsafe_allow_html=True)
 
@@ -1555,3 +1592,5 @@ elif page == "analysis":
                        key="dl_all_cat")
 
     st.markdown('</div>', unsafe_allow_html=True)
+
+
