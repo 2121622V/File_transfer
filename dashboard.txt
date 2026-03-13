@@ -466,6 +466,25 @@ elif page == "augment":
     sel_q = st.session_state.sel_q_indices   # set of int
     sel_c = st.session_state.sel_codes       # set of str
 
+    # ── Checkbox helper ───────────────────────────────────────────────────────
+    # Rule: NEVER write to st.session_state[key] after st.checkbox(key=key).
+    # Instead use a shadow key (prefixed "s_") to carry desired state across
+    # reruns, and only delete it (never set it) after the widget is rendered.
+    # The on_change callback reads the NEW widget value and mutates our sets.
+    def make_checkbox(label, desired: bool, widget_key: str, on_change_fn):
+        """
+        Render a checkbox that always reflects `desired`.
+        - shadow key "s_{widget_key}" holds the desired bool across reruns
+        - if the shadow differs from the widget key, we delete the widget key
+          so Streamlit picks up value= fresh on this render
+        - on_change_fn() is called by Streamlit immediately when user clicks
+        """
+        shadow = f"s_{widget_key}"
+        st.session_state[shadow] = desired          # always write shadow
+        if widget_key in st.session_state and st.session_state[widget_key] != desired:
+            del st.session_state[widget_key]        # force widget to re-read value=
+        return st.checkbox(label, value=desired, key=widget_key, on_change=on_change_fn)
+
     st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;margin-bottom:16px">', unsafe_allow_html=True)
     st.markdown("#### Select Questions & Bias Categories")
     st.caption("Select categories to include all their subtypes, or pick subtypes individually.")
@@ -474,52 +493,38 @@ elif page == "augment":
 
     # ══════════════════════════════════════════════════════════════════════════
     # QUESTIONS PANEL
-    # on_change callbacks mutate the set directly, then Streamlit reruns.
-    # value= is derived from the set each render — widget key IS the set mirror.
     # ══════════════════════════════════════════════════════════════════════════
     with col_q:
         st.markdown('<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #eff6ff">📄 Input Questions</div>', unsafe_allow_html=True)
 
         q_search   = st.text_input("🔍 Search questions", "", key="q_search")
-        filtered_q = [(i, q) for i, q in enumerate(questions) if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
+        filtered_q = [(i, q) for i, q in enumerate(questions)
+                      if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
         fq_idx     = [i for i, _ in filtered_q]
         all_fq_sel = bool(fq_idx) and all(i in sel_q for i in fq_idx)
 
-        def on_master_q_change():
-            checked = st.session_state["_mq"]
-            if checked:
+        def _on_master_q():
+            if st.session_state["wk_mq"]:
                 st.session_state.sel_q_indices.update(fq_idx)
             else:
                 st.session_state.sel_q_indices.difference_update(fq_idx)
 
-        st.checkbox(
-            f"Select All Questions ({len(fq_idx)})",
-            value=all_fq_sel,
-            key="_mq",
-            on_change=on_master_q_change,
-        )
-        # keep widget in sync with set (handles external mutations)
-        st.session_state["_mq"] = all_fq_sel
-
+        make_checkbox(f"Select All Questions ({len(fq_idx)})", all_fq_sel, "wk_mq", _on_master_q)
         st.caption(f"{len(sel_q)} / {len(questions)} selected")
 
         with st.container(height=280):
             for i, q in filtered_q:
                 cur = i in sel_q
 
-                def on_q_change(idx=i):
-                    if st.session_state[f"_q{idx}"]:
+                def _on_q(idx=i):
+                    if st.session_state[f"wk_q{idx}"]:
                         st.session_state.sel_q_indices.add(idx)
                     else:
                         st.session_state.sel_q_indices.discard(idx)
 
-                st.checkbox(
+                make_checkbox(
                     f"Q{i+1} — {q[:80]}{'…' if len(q)>80 else ''}",
-                    value=cur,
-                    key=f"_q{i}",
-                    on_change=on_q_change,
-                )
-                st.session_state[f"_q{i}"] = cur
+                    cur, f"wk_q{i}", _on_q)
 
     # ══════════════════════════════════════════════════════════════════════════
     # CATEGORIES PANEL
@@ -541,24 +546,21 @@ elif page == "augment":
         all_filtered_codes = [c for items in filtered_cats.values() for c, _ in items]
         all_oc_sel = bool(all_filtered_codes) and all(c in sel_c for c in all_filtered_codes)
 
-        def on_master_o_change():
-            checked = st.session_state["_mo"]
-            if checked:
+        def _on_master_o():
+            if st.session_state["wk_mo"]:
                 st.session_state.sel_codes.update(all_filtered_codes)
             else:
                 st.session_state.sel_codes.difference_update(all_filtered_codes)
 
-        st.checkbox(
+        make_checkbox(
             f"Select All ({len(all_filtered_codes)} subtypes across {len(filtered_cats)} categories)",
-            value=all_oc_sel,
-            key="_mo",
-            on_change=on_master_o_change,
-        )
-        st.session_state["_mo"] = all_oc_sel
+            all_oc_sel, "wk_mo", _on_master_o)
 
         n_sel_codes = sum(1 for c in all_filtered_codes if c in sel_c)
-        n_sel_cats  = sum(1 for cat, items in filtered_cats.items() if all(c in sel_c for c, _ in items))
-        st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(all_filtered_codes)} subtypes selected")
+        n_sel_cats  = sum(1 for cat, items in filtered_cats.items()
+                          if all(c in sel_c for c, _ in items))
+        st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · "
+                   f"{n_sel_codes}/{len(all_filtered_codes)} subtypes selected")
 
         with st.container(height=280):
             if not ont_map:
@@ -572,20 +574,18 @@ elif page == "augment":
                     n_sel_c      = sum(1 for c in codes_in_cat if c in sel_c)
                     bdr = "#16a34a" if cat_all_sel else "#f59e0b" if cat_any_sel else "#e2e8f0"
 
-                    # ── Category header: checkbox + styled label side by side ──
+                    # ── Category row ──────────────────────────────────────────
                     cat_chk_col, cat_lbl_col = st.columns([0.07, 0.93])
 
-                    def on_cat_change(codes=codes_in_cat):
-                        cat_key = f"_cat_{cat}"
-                        if st.session_state.get(cat_key):
+                    def _on_cat(codes=codes_in_cat):
+                        wk = f"wk_cat_{cat}"
+                        if st.session_state[wk]:
                             st.session_state.sel_codes.update(codes)
                         else:
                             st.session_state.sel_codes.difference_update(codes)
 
                     with cat_chk_col:
-                        st.checkbox("", value=cat_all_sel, key=f"_cat_{cat}", on_change=on_cat_change)
-                        st.session_state[f"_cat_{cat}"] = cat_all_sel
-
+                        make_checkbox("", cat_all_sel, f"wk_cat_{cat}", _on_cat)
                     with cat_lbl_col:
                         st.markdown(
                             f'<div style="display:flex;align-items:center;justify-content:space-between;'
@@ -601,29 +601,31 @@ elif page == "augment":
                         is_chk = code in sel_c
                         sub_chk_col, sub_lbl_col = st.columns([0.07, 0.93])
 
-                        def on_sub_change(c=code):
-                            if st.session_state.get(f"_sub_{c}"):
+                        def _on_sub(c=code):
+                            if st.session_state[f"wk_sub_{c}"]:
                                 st.session_state.sel_codes.add(c)
                             else:
                                 st.session_state.sel_codes.discard(c)
 
                         with sub_chk_col:
-                            st.checkbox("", value=is_chk, key=f"_sub_{code}", on_change=on_sub_change)
-                            st.session_state[f"_sub_{code}"] = is_chk
-
+                            make_checkbox("", is_chk, f"wk_sub_{code}", _on_sub)
                         with sub_lbl_col:
                             st.markdown(
                                 f'<div style="display:flex;align-items:center;gap:6px;'
                                 f'padding:1px 4px 1px 14px;'
-                                f'border-left:2px solid {"#bfdbfe" if is_chk else "#f1f5f9"};margin-left:4px">'
-                                f'<span style="font-family:monospace;background:{"#dbeafe" if is_chk else "#f1f5f9"};'
-                                f'color:{"#1d4ed8" if is_chk else "#64748b"};padding:0 4px;border-radius:3px;'
-                                f'font-size:10px;font-weight:600">{code}</span>'
-                                f'<span style="font-size:11px;color:{"#1e293b" if is_chk else "#94a3b8"};'
-                                f'font-weight:{"600" if is_chk else "400"}">{meta["subtype"]}</span>'
+                                f'border-left:2px solid {"#bfdbfe" if is_chk else "#f1f5f9"};'
+                                f'margin-left:4px">'
+                                f'<span style="font-family:monospace;'
+                                f'background:{"#dbeafe" if is_chk else "#f1f5f9"};'
+                                f'color:{"#1d4ed8" if is_chk else "#64748b"};'
+                                f'padding:0 4px;border-radius:3px;font-size:10px;font-weight:600">'
+                                f'{code}</span>'
+                                f'<span style="font-size:11px;'
+                                f'color:{"#1e293b" if is_chk else "#94a3b8"};'
+                                f'font-weight:{"600" if is_chk else "400"}">'
+                                f'{meta["subtype"]}</span>'
                                 f'</div>', unsafe_allow_html=True)
 
-                    # thin gap only between categories, not between subtypes
                     st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
