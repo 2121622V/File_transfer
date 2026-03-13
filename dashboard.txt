@@ -67,6 +67,14 @@ div[data-testid="stExpander"] { background:white!important;border:1px solid #e2e
 .status-fail { background:#fef2f2;color:#dc2626;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #fecaca;display:inline-block; }
 .report-box { background:#f8fafc;border:1px solid #dbeafe;border-left:4px solid #2563eb;border-radius:10px;padding:20px 24px;font-size:13px;line-height:1.9;color:#1e293b;white-space:pre-wrap; }
 .highlight-word { background:#fef08a;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:700; }
+/* Pagination styles */
+.pagination-container { display:flex;align-items:center;justify-content:center;gap:6px;padding:14px 0 4px; }
+.page-btn { background:white;border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:#475569;cursor:pointer;min-width:36px;text-align:center; }
+.page-btn-active { background:#2563eb;border-color:#2563eb;color:white; }
+.page-btn-nav { background:white;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;font-size:13px;color:#475569;cursor:pointer; }
+/* Category tree */
+.cat-header { display:flex;align-items:center;gap:8px;padding:5px 0 3px;border-bottom:1px solid #f1f5f9;margin-bottom:2px; }
+.sub-item { display:flex;align-items:center;gap:6px;padding:2px 0 2px 20px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -99,7 +107,10 @@ DEFAULTS = {
     "report_row": None, "last_report": None,
     "sel_questions": [], "sel_codes": [], "sel_categories": [],
     "aug_view_mode": "raw",
-    "governance_report": None,   # stores {root_causes, recommendations, generated_at}
+    "aug_highlight_page": 0,
+    "diff_viewer_page": 0,
+    "num_variations": 1,
+    "governance_report": None,
     "azure_key":      os.getenv("AZURE_OPENAI_API_KEY", ""),
     "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
     "azure_version":  os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
@@ -129,7 +140,6 @@ METRIC_COLS     = ["Decision Flip", "Fairness Degradation", "Tone Inequality",
                    "Safety_Drift", "Stereotype Injection"]
 
 def build_metrics_summary(edf: pd.DataFrame) -> list:
-    """Lightweight per-category summary passed to governance LLM prompts."""
     summary = (edf.groupby("Category")[METRIC_COLS]
                   .mean().round(4).reset_index())
     fail_counts  = (edf[edf["Status"] == "Fail"]
@@ -268,8 +278,10 @@ def green_download(label, data, file_name, mime, key=None):
 def fit_height(df, row_h=35, head_h=40, min_h=75, max_h=500):
     return max(min_h, min(head_h + len(df)*row_h, max_h))
 
-def side_by_side_diff(expected_text, actual_text):
+def side_by_side_diff(expected_text, actual_text, page_label=""):
     diff_html = highlight_diff(expected_text, actual_text)
+    if page_label:
+        st.markdown(f'<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">{page_label}</div>', unsafe_allow_html=True)
     col_l, col_r = st.columns(2)
     with col_l:
         st.markdown('<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🟢 Expected Output</div>', unsafe_allow_html=True)
@@ -277,6 +289,60 @@ def side_by_side_diff(expected_text, actual_text):
     with col_r:
         st.markdown('<div style="font-size:10px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🟡 Actual Output <span style="font-weight:400;color:#94a3b8">(yellow = extra words)</span></div>', unsafe_allow_html=True)
         st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;min-height:80px">{diff_html}</div>', unsafe_allow_html=True)
+
+
+def render_pagination(current_page: int, total_pages: int, key_prefix: str):
+    """Render a pagination bar and return the new page index (0-based)."""
+    if total_pages <= 1:
+        return current_page
+
+    col_prev, col_pages, col_next = st.columns([1, 6, 1])
+
+    with col_prev:
+        if st.button("←", key=f"{key_prefix}_prev", disabled=(current_page == 0), use_container_width=True):
+            return max(0, current_page - 1)
+
+    with col_pages:
+        # Show up to 7 page buttons with ellipsis
+        def page_buttons(n_pages, cur):
+            pages = []
+            if n_pages <= 7:
+                pages = list(range(n_pages))
+            else:
+                if cur <= 3:
+                    pages = list(range(5)) + ["...", n_pages - 1]
+                elif cur >= n_pages - 4:
+                    pages = [0, "..."] + list(range(n_pages - 5, n_pages))
+                else:
+                    pages = [0, "...", cur - 1, cur, cur + 1, "...", n_pages - 1]
+            return pages
+
+        btns = page_buttons(total_pages, current_page)
+        cols = st.columns(len(btns))
+        for i, (col, p) in enumerate(zip(cols, btns)):
+            with col:
+                if p == "...":
+                    st.markdown('<div style="text-align:center;padding:6px 0;color:#94a3b8;font-size:13px">…</div>', unsafe_allow_html=True)
+                else:
+                    is_active = (p == current_page)
+                    btn_style = (
+                        "background:#2563eb;color:white;border:none;" if is_active
+                        else "background:white;color:#475569;border:1px solid #e2e8f0;"
+                    )
+                    if st.button(
+                        str(p + 1),
+                        key=f"{key_prefix}_pg_{p}",
+                        use_container_width=True,
+                        disabled=is_active,
+                    ):
+                        return p
+
+    with col_next:
+        if st.button("→", key=f"{key_prefix}_next", disabled=(current_page == total_pages - 1), use_container_width=True):
+            return min(total_pages - 1, current_page + 1)
+
+    return current_page
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
@@ -336,7 +402,6 @@ if page == "upload":
     page_header("📂 Upload Input Files",
                 "Upload your dataset, ontology and prompt files to begin the bias detection pipeline.")
 
-    # Auto-load YAMLs from disk — pure Python, zero Streamlit widgets
     def _try_load_yaml(path, yaml_sub=None):
         try:
             raw    = open(path, "rb").read()
@@ -363,7 +428,6 @@ if page == "upload":
                 st.session_state.prm_filename = "prompts.yaml"
                 st.session_state.prompts      = parsed
 
-    # ── Single card function — ONE uploader per card, no hidden widgets ───────
     def upload_card(title, icon, ext_badge, description, required_note,
                     file_key, bytes_key, fname_key, data_key,
                     is_yaml=False, yaml_sub=None):
@@ -444,7 +508,6 @@ if page == "upload":
 
         st.markdown('</div></div>', unsafe_allow_html=True)
 
-        # Preview (uses stored bytes, not the uploader widget)
         fname  = st.session_state.get(fname_key)
         fbytes = st.session_state.get(bytes_key)
         if fbytes and fname:
@@ -459,7 +522,6 @@ if page == "upload":
                 else:
                     st.code(fbytes.decode("utf-8", "ignore"), language="yaml")
 
-        # Process new upload — only when filename changes
         if upl is not None and upl.name != st.session_state.get(fname_key):
             raw = upl.read()
             st.session_state[bytes_key] = raw
@@ -479,7 +541,6 @@ if page == "upload":
                     st.error(f"Read error: {e}"); return
             st.rerun()
 
-    # ── Render exactly 3 cards ────────────────────────────────────────────────
     upload_card("Input Dataset",    "📄", ".xlsx / .csv",
                 "Must contain original_question and expected_output columns",
                 "Columns: original_question, expected_output",
@@ -497,7 +558,6 @@ if page == "upload":
                 "prompts_up", "prm_bytes", "prm_filename", "prompts",
                 is_yaml=True, yaml_sub="prompts")
 
-    # ── Pipeline Readiness Footer ─────────────────────────────────────────────
     st.divider()
     loaded_flags = [
         st.session_state.input_df is not None,
@@ -550,75 +610,106 @@ if page == "upload":
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "augment":
     page_header("🔀 Augmentation",
-                "Select questions and bias categories, then generate Roleplay and Storyline augmentations.")
+                "Select questions and bias categories, then generate augmentations and question variations.")
 
     if st.session_state.input_df is None:
         st.warning("⬅ Complete the Upload Input step first."); st.stop()
 
     df       = st.session_state.input_df
-    ont_map  = build_ontology_map(st.session_state.ontology)  if st.session_state.ontology else {}
+    ont_map  = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
     questions = df["original_question"].tolist() if "original_question" in df.columns else []
 
     cat_codes: dict = {}
     for code, meta in ont_map.items():
         cat_codes.setdefault(meta["category"], []).append(code)
 
+    # ── SELECTION SECTION ─────────────────────────────────────────────────────
     st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;margin-bottom:16px">', unsafe_allow_html=True)
     st.markdown("#### Select Questions & Bias Categories")
     st.caption("Select categories to include all their subtypes, or pick subtypes individually.")
 
     col_q, col_o = st.columns(2, gap="large")
 
-    # ── QUESTIONS ──
+    # ── QUESTIONS PANEL ───────────────────────────────────────────────────────
     with col_q:
-        st.markdown('<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">📄 Input Questions</div>', unsafe_allow_html=True)
-        q_search    = st.text_input("🔍 Search questions", "", key="q_search")
-        filtered_q  = [(i,q) for i,q in enumerate(questions) if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
-        fq_idx      = [i for i,_ in filtered_q]
-        all_fq_sel  = bool(fq_idx) and all(i in st.session_state.sel_questions for i in fq_idx)
+        st.markdown(
+            '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
+            'letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">'
+            '📄 Input Questions</div>', unsafe_allow_html=True)
+
+        q_search   = st.text_input("🔍 Search questions", "", key="q_search")
+        filtered_q = [(i, q) for i, q in enumerate(questions) if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
+        fq_idx     = [i for i, _ in filtered_q]
+        all_fq_sel = bool(fq_idx) and all(i in st.session_state.sel_questions for i in fq_idx)
 
         def on_master_q():
             if st.session_state["_master_q"]:
                 for i in fq_idx:
-                    if i not in st.session_state.sel_questions: st.session_state.sel_questions.append(i)
+                    if i not in st.session_state.sel_questions:
+                        st.session_state.sel_questions.append(i)
             else:
                 st.session_state.sel_questions = [i for i in st.session_state.sel_questions if i not in fq_idx]
 
-        st.checkbox(f"Select All Questions ({len(fq_idx)})", value=all_fq_sel, key="_master_q", on_change=on_master_q)
+        st.checkbox(
+            f"Select All Questions ({len(fq_idx)})",
+            value=all_fq_sel, key="_master_q", on_change=on_master_q)
         st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
 
         with st.container(height=300):
             for i, q in filtered_q:
                 def on_q(idx=i):
                     if st.session_state[f"_q_{idx}"]:
-                        if idx not in st.session_state.sel_questions: st.session_state.sel_questions.append(idx)
+                        if idx not in st.session_state.sel_questions:
+                            st.session_state.sel_questions.append(idx)
                     else:
                         st.session_state.sel_questions = [x for x in st.session_state.sel_questions if x != idx]
-                st.checkbox(f"Q{i+1} — {q[:85]}{'…' if len(q)>85 else ''}", value=i in st.session_state.sel_questions, key=f"_q_{i}", on_change=on_q)
+                st.checkbox(
+                    f"Q{i+1} — {q[:85]}{'…' if len(q) > 85 else ''}",
+                    value=i in st.session_state.sel_questions,
+                    key=f"_q_{i}", on_change=on_q)
 
-    # ── CATEGORIES ──
+    # ── CATEGORIES PANEL ──────────────────────────────────────────────────────
     with col_o:
-        st.markdown('<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">🗂 Bias Categories</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
+            'letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">'
+            '🗂 Bias Categories</div>', unsafe_allow_html=True)
+
         o_search = st.text_input("🔍 Search categories / subtypes", "", key="o_search")
 
         filtered_cats: dict = {}
         for cat, codes in cat_codes.items():
-            items = [(c, ont_map[c]) for c in codes if o_search=="" or o_search.lower() in cat.lower() or o_search.lower() in ont_map[c]["subtype"].lower() or o_search.lower() in c.lower()]
-            if items: filtered_cats[cat] = items
+            items = [
+                (c, ont_map[c]) for c in codes
+                if o_search == "" or o_search.lower() in cat.lower()
+                or o_search.lower() in ont_map[c]["subtype"].lower()
+                or o_search.lower() in c.lower()
+            ]
+            if items:
+                filtered_cats[cat] = items
 
-        filtered_codes = [c for items in filtered_cats.values() for c,_ in items]
+        filtered_codes = [c for items in filtered_cats.values() for c, _ in items]
         all_fc_sel     = bool(filtered_codes) and all(c in st.session_state.sel_codes for c in filtered_codes)
 
         def on_master_o():
             if st.session_state["_master_o"]:
                 for c in filtered_codes:
-                    if c not in st.session_state.sel_codes: st.session_state.sel_codes.append(c)
+                    if c not in st.session_state.sel_codes:
+                        st.session_state.sel_codes.append(c)
             else:
                 st.session_state.sel_codes = [c for c in st.session_state.sel_codes if c not in filtered_codes]
 
-        st.checkbox(f"Select All Categories ({len(filtered_cats)})", value=all_fc_sel, key="_master_o", on_change=on_master_o)
-        n_sel_cats = sum(1 for cat,items in filtered_cats.items() if all(c in st.session_state.sel_codes for c,_ in items))
-        st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {len([c for c in filtered_codes if c in st.session_state.sel_codes])}/{len(filtered_codes)} subtypes selected")
+        # "Select All" master checkbox
+        st.checkbox(
+            f"Select All ({len(filtered_codes)} subtypes across {len(filtered_cats)} categories)",
+            value=all_fc_sel, key="_master_o", on_change=on_master_o)
+
+        n_sel_codes = len([c for c in filtered_codes if c in st.session_state.sel_codes])
+        n_sel_cats  = sum(
+            1 for cat, items in filtered_cats.items()
+            if all(c in st.session_state.sel_codes for c, _ in items)
+        )
+        st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(filtered_codes)} subtypes selected")
 
         sel_set = set(st.session_state.sel_codes)
 
@@ -628,48 +719,121 @@ elif page == "augment":
             else:
                 for cat in sorted(filtered_cats.keys()):
                     items        = filtered_cats[cat]
-                    codes_in_cat = [c for c,_ in items]
+                    codes_in_cat = [c for c, _ in items]
                     cat_all      = all(c in sel_set for c in codes_in_cat)
                     cat_any      = any(c in sel_set for c in codes_in_cat)
                     n_sel_c      = sum(1 for c in codes_in_cat if c in sel_set)
-                    ind          = "●" if cat_all else "◑" if cat_any else "○"
-                    ind_col      = "#16a34a" if cat_all else "#f59e0b" if cat_any else "#94a3b8"
 
-                    chk_col, lbl_col = st.columns([0.12, 0.88])
+                    # ── Category header row ───────────────────────────────────
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:0px;'
+                        f'background:#f8fafc;border-radius:6px;padding:4px 6px;margin-top:6px;'
+                        f'border-left:3px solid {"#16a34a" if cat_all else "#f59e0b" if cat_any else "#e2e8f0"}">',
+                        unsafe_allow_html=True)
+
+                    cat_chk_col, cat_lbl_col = st.columns([0.08, 0.92])
+
                     def on_cat(cc=codes_in_cat, cn=cat):
                         if st.session_state[f"_cat_{cn}"]:
                             for c in cc:
-                                if c not in st.session_state.sel_codes: st.session_state.sel_codes.append(c)
+                                if c not in st.session_state.sel_codes:
+                                    st.session_state.sel_codes.append(c)
                         else:
                             st.session_state.sel_codes = [c for c in st.session_state.sel_codes if c not in cc]
-                    with chk_col:
-                        st.checkbox("c", value=cat_all, key=f"_cat_{cat}", label_visibility="collapsed", on_change=on_cat)
-                    with lbl_col:
+
+                    with cat_chk_col:
+                        st.checkbox(
+                            "cat", value=cat_all,
+                            key=f"_cat_{cat}",
+                            label_visibility="collapsed",
+                            on_change=on_cat)
+                    with cat_lbl_col:
                         st.markdown(
-                            f'<div style="display:flex;align-items:center;justify-content:space-between;padding:4px 0 2px">'
-                            f'<span style="font-size:12px;font-weight:700;color:#1e293b"><span style="color:{ind_col}">{ind}</span> {cat}</span>'
-                            f'<span style="font-size:10px;background:#f1f5f9;color:#475569;padding:1px 7px;border-radius:10px;font-weight:600">{n_sel_c}/{len(codes_in_cat)}</span></div>',
+                            f'<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">'
+                            f'<span style="font-size:12px;font-weight:700;color:#1e293b">{cat}</span>'
+                            f'<span style="font-size:10px;background:#e0e7ff;color:#3730a3;padding:1px 7px;'
+                            f'border-radius:10px;font-weight:600">{n_sel_c}/{len(codes_in_cat)}</span>'
+                            f'</div>',
                             unsafe_allow_html=True)
 
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    # ── Sub-items (indented) ──────────────────────────────────
                     for code, meta in items:
                         is_chk = code in sel_set
-                        sc, sl = st.columns([0.12, 0.88])
+                        sub_chk_col, sub_lbl_col = st.columns([0.08, 0.92])
+
                         def on_sub(c=code):
                             if st.session_state[f"_sub_{c}"]:
-                                if c not in st.session_state.sel_codes: st.session_state.sel_codes.append(c)
+                                if c not in st.session_state.sel_codes:
+                                    st.session_state.sel_codes.append(c)
                             else:
                                 st.session_state.sel_codes = [x for x in st.session_state.sel_codes if x != c]
-                        with sc:
-                            st.checkbox(code, value=is_chk, key=f"_sub_{code}", label_visibility="collapsed", on_change=on_sub)
-                        with sl:
+
+                        with sub_chk_col:
+                            st.markdown('<div style="padding-left:16px">', unsafe_allow_html=True)
+                            st.checkbox(
+                                code, value=is_chk,
+                                key=f"_sub_{code}",
+                                label_visibility="collapsed",
+                                on_change=on_sub)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                        with sub_lbl_col:
                             st.markdown(
-                                f'<div style="margin-left:4px;padding:3px 0;font-size:11px;color:{"#1e293b" if is_chk else "#94a3b8"};font-weight:{"600" if is_chk else "400"}">'
-                                f'<span style="font-family:monospace;background:{"#dbeafe" if is_chk else "#f1f5f9"};color:{"#1d4ed8" if is_chk else "#64748b"};padding:1px 5px;border-radius:3px;font-size:10px">{code}</span> {meta["subtype"]}</div>',
+                                f'<div style="padding-left:12px;padding:3px 4px 3px 12px;'
+                                f'border-left:2px solid {"#bfdbfe" if is_chk else "#f1f5f9"};'
+                                f'margin-left:4px">'
+                                f'<span style="font-family:monospace;background:{"#dbeafe" if is_chk else "#f1f5f9"};'
+                                f'color:{"#1d4ed8" if is_chk else "#64748b"};padding:1px 5px;border-radius:3px;'
+                                f'font-size:10px;font-weight:600">{code}</span>'
+                                f'<span style="font-size:11px;color:{"#1e293b" if is_chk else "#94a3b8"};'
+                                f'font-weight:{"600" if is_chk else "400"};margin-left:6px">'
+                                f'{meta["subtype"]}</span>'
+                                f'</div>',
                                 unsafe_allow_html=True)
+
                     st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
+    # ── QUESTION VARIATIONS SECTION ──────────────────────────────────────────
+    st.markdown(
+        '<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;'
+        'padding:18px 24px;margin-bottom:16px;border-left:4px solid #6366f1">',
+        unsafe_allow_html=True)
+    st.markdown("#### 🔢 Question Variations")
+    st.caption("Specify how many variations to generate per question–subtype combination using the variation prompt template.")
+
+    var_col, var_info_col = st.columns([1, 3], gap="large")
+    with var_col:
+        num_var = st.number_input(
+            "Variations per question",
+            min_value=1, max_value=10, value=st.session_state.num_variations,
+            step=1, key="num_var_input",
+            help="Each selected question × each selected subtype will produce this many variations.")
+        st.session_state.num_variations = num_var
+
+    with var_info_col:
+        sel_q_count = len(st.session_state.sel_questions)
+        sel_c_count = len(st.session_state.sel_codes)
+        total_rows  = sel_q_count * sel_c_count * num_var
+        st.markdown(
+            f'<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;'
+            f'padding:12px 16px;margin-top:4px">'
+            f'<div style="font-size:12px;color:#5b21b6;font-weight:700;margin-bottom:6px">📊 Generation Estimate</div>'
+            f'<div style="display:flex;gap:20px;flex-wrap:wrap">'
+            f'<span style="font-size:12px;color:#4c1d95"><b>{sel_q_count}</b> questions × '
+            f'<b>{sel_c_count}</b> subtypes × <b>{num_var}</b> variation(s) = '
+            f'<b style="font-size:14px;color:#2563eb">{total_rows}</b> total rows</span>'
+            f'</div>'
+            f'<div style="font-size:11px;color:#7c3aed;margin-top:6px">'
+            f'Uses <code>question_variations</code> prompt template from prompts.yaml</div>'
+            f'</div>',
+            unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── RUN BAR ───────────────────────────────────────────────────────────────
     sel_q    = st.session_state.sel_questions
     sel_c    = st.session_state.sel_codes
     rows_use = df.iloc[sel_q].reset_index(drop=True) if sel_q else df.iloc[[]]
@@ -677,83 +841,210 @@ elif page == "augment":
     c_info, c_run = st.columns([3, 1])
     with c_info:
         st.markdown(
-            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;padding:10px 16px;display:flex;align-items:center;gap:16px">'
+            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;'
+            f'padding:10px 16px;display:flex;align-items:center;gap:16px">'
             f'<span style="font-size:13px;color:#334155">Selected:</span>'
             f'<span style="background:#dbeafe;color:#1d4ed8;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">{len(rows_use)} Questions</span>'
             f'<span style="background:#ede9fe;color:#6d28d9;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">{len(sel_c)} Subtypes</span>'
-            f'<span style="background:#f0fdf4;color:#15803d;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">{len(rows_use)*len(sel_c)} Rows to Generate</span>'
+            f'<span style="background:#f0fdf4;color:#15803d;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">{len(rows_use)*len(sel_c)*num_var} Rows to Generate</span>'
             f'</div>', unsafe_allow_html=True)
     with c_run:
-        run_aug = st.button("▶ Run Augmentation", type="primary", disabled=(len(rows_use)==0 or len(sel_c)==0), use_container_width=True)
+        run_aug = st.button(
+            "▶ Run Augmentation",
+            type="primary",
+            disabled=(len(rows_use) == 0 or len(sel_c) == 0),
+            use_container_width=True)
 
     if run_aug:
-        st.session_state.gen_df = None; st.session_state.eval_df = None
+        st.session_state.gen_df  = None
+        st.session_state.eval_df = None
+        st.session_state.aug_highlight_page = 0
         prompts  = st.session_state.prompts or {}
-        total    = len(rows_use) * len(sel_c)
+        total    = len(rows_use) * len(sel_c) * num_var
         progress = st.progress(0, text="Initializing…")
         aug_rows = []
 
         async def augment_all():
-            async def one(q, code, ont):
-                p = (prompts.get("augmentation","").replace("{{code}}",code).replace("{{subtype}}",ont["subtype"]).replace("{{category}}",ont["category"]).replace("{{question}}",q))
-                return await call_llm(p)
-            tasks = [one(str(r["original_question"]), code, ont_map[code]) for _,r in rows_use.iterrows() for code in sel_c]
-            return await asyncio.gather(*tasks, return_exceptions=True)
+            tasks = []
+            meta_list = []
+            for _, r in rows_use.iterrows():
+                for code in sel_c:
+                    ont = ont_map[code]
+                    for v_idx in range(num_var):
+                        # Use question_variations prompt if num_var > 1, else standard augmentation
+                        if num_var > 1:
+                            p = (prompts.get("question_variations", prompts.get("augmentation", ""))
+                                 .replace("{{code}}", code)
+                                 .replace("{{subtype}}", ont["subtype"])
+                                 .replace("{{category}}", ont["category"])
+                                 .replace("{{question}}", str(r["original_question"]))
+                                 .replace("{{variation_number}}", str(v_idx + 1))
+                                 .replace("{{total_variations}}", str(num_var)))
+                        else:
+                            p = (prompts.get("augmentation", "")
+                                 .replace("{{code}}", code)
+                                 .replace("{{subtype}}", ont["subtype"])
+                                 .replace("{{category}}", ont["category"])
+                                 .replace("{{question}}", str(r["original_question"])))
+                        tasks.append(call_llm(p))
+                        meta_list.append((r, code, ont, v_idx + 1))
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            return results, meta_list
 
-        results = run_async(augment_all())
-        idx = 0
-        for _, row in rows_use.iterrows():
-            for code in sel_c:
-                res = results[idx]; idx += 1
-                progress.progress(idx/total, text=f"Augmenting {idx}/{total}…")
-                if isinstance(res, Exception) or not res: continue
-                aug_rows.append({"original_question":str(row["original_question"]),"expected_output":str(row.get("expected_output","")),"A_Code":code,"Category":ont_map[code]["category"],"Subtype":ont_map[code]["subtype"],"Bias Type":ont_map[code]["bias_pattern"],"Augmented Roleplay":res.get("roleplay_question",""),"Augmented Storyline":res.get("storyline_question","")})
+        results, meta_list = run_async(augment_all())
+        for idx, (res, (row, code, ont, v_num)) in enumerate(zip(results, meta_list)):
+            progress.progress((idx + 1) / total, text=f"Augmenting {idx+1}/{total}…")
+            if isinstance(res, Exception) or not res:
+                continue
+            aug_rows.append({
+                "original_question":   str(row["original_question"]),
+                "expected_output":     str(row.get("expected_output", "")),
+                "A_Code":              code,
+                "Category":            ont["category"],
+                "Subtype":             ont["subtype"],
+                "Bias Type":           ont["bias_pattern"],
+                "Variation":           v_num,
+                "Augmented Roleplay":  res.get("roleplay_question", ""),
+                "Augmented Storyline": res.get("storyline_question", ""),
+            })
+
         progress.empty()
         if aug_rows:
             aug_df = pd.DataFrame(aug_rows)
-            aug_df.to_excel(OUTPUT_DIR/"step2_augmentation.xlsx", index=False)
+            aug_df.to_excel(OUTPUT_DIR / "step2_augmentation.xlsx", index=False)
             st.session_state.aug_df = aug_df
-            st.success(f"✅ {len(aug_df)} rows generated."); st.rerun()
+            st.success(f"✅ {len(aug_df)} rows generated.")
+            st.rerun()
         else:
             st.error("No results returned. Check Azure credentials and prompts.")
 
+    # ── AUGMENTATION RESULTS ──────────────────────────────────────────────────
     if st.session_state.aug_df is not None:
         aug_df = st.session_state.aug_df
         st.divider()
 
         st.markdown(
-            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:8px 16px;margin-bottom:12px;">'
-            f'<span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#2563eb">'
+            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+            f'padding:8px 16px;margin-bottom:12px;">'
+            f'<span style="font-size:11px;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:.08em;color:#2563eb">'
             f'Augmentation Results — {len(aug_df)} Rows</span></div>',
             unsafe_allow_html=True)
 
         tb_mid, tb_right = st.columns([2, 1])
         with tb_mid:
-            view_mode = st.segmented_control("View", options=["RAW","HIGHLIGHTED"], default="RAW", key="aug_view", label_visibility="collapsed")
+            view_mode = st.segmented_control(
+                "View", options=["RAW", "HIGHLIGHTED"],
+                default="RAW", key="aug_view", label_visibility="collapsed")
             st.session_state.aug_view_mode = (view_mode or "RAW").lower()
         with tb_right:
-            green_download("⬇ Download", to_excel_bytes(aug_df), "step2_augmentation.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_aug")
+            green_download(
+                "⬇ Download", to_excel_bytes(aug_df), "step2_augmentation.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_aug")
 
         if st.session_state.aug_view_mode == "raw":
-            dc = [c for c in ["A_Code","Category","Subtype","original_question","Augmented Roleplay","Augmented Storyline"] if c in aug_df.columns]
+            dc = [c for c in ["A_Code","Category","Subtype","Variation","original_question",
+                               "Augmented Roleplay","Augmented Storyline"] if c in aug_df.columns]
             st.dataframe(aug_df[dc], use_container_width=True, height=fit_height(aug_df))
+
         else:
-            for idx_r, row in aug_df.iterrows():
-                with st.expander(f"Row {idx_r+1} · {row.get('A_Code')} — {row.get('Subtype')}", expanded=False):
-                    c1,c2 = st.columns(2)
-                    with c1:
-                        st.markdown("**Original Question**"); st.markdown(row.get('original_question','—'))
-                    with c2:
-                        st.markdown("**Augmented Roleplay** *(Yellow = Changes)*")
-                        st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:13px;line-height:1.7">{highlight_diff(row.get("original_question",""), row.get("Augmented Roleplay",""))}</div>', unsafe_allow_html=True)
-                    st.markdown("---")
-                    c3,c4 = st.columns(2)
-                    with c3:
-                        st.markdown("**Original Question**"); st.markdown(row.get('original_question','—'))
-                    with c4:
-                        st.markdown("**Augmented Storyline** *(Yellow = Changes)*")
-                        st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;font-size:13px;line-height:1.7">{highlight_diff(row.get("original_question",""), row.get("Augmented Storyline",""))}</div>', unsafe_allow_html=True)
+            # ── HIGHLIGHTED PAGINATED VIEW ────────────────────────────────────
+            total_pages = len(aug_df)
+            cur_page    = st.session_state.aug_highlight_page
+
+            # Clamp page in case df shrank
+            if cur_page >= total_pages:
+                cur_page = max(0, total_pages - 1)
+                st.session_state.aug_highlight_page = cur_page
+
+            if total_pages > 0:
+                row = aug_df.iloc[cur_page]
+
+                # Page info badge
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;'
+                    f'background:white;border:1px solid #e2e8f0;border-radius:8px;'
+                    f'padding:8px 16px;margin-bottom:12px">'
+                    f'<div style="display:flex;align-items:center;gap:10px">'
+                    f'<span style="font-size:12px;font-weight:700;color:#0f172a">'
+                    f'Row {cur_page + 1} of {total_pages}</span>'
+                    f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;'
+                    f'border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span>'
+                    f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;'
+                    f'border-radius:20px;font-size:11px;font-weight:600">{row.get("Category","—")}</span>'
+                    f'<span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span>'
+                    f'{"<span style=background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600>Var " + str(int(row.get("Variation", 1))) + "</span>" if "Variation" in row.index else ""}'
+                    f'</div></div>',
+                    unsafe_allow_html=True)
+
+                # Content: original + roleplay
+                st.markdown(
+                    '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+                    'padding:16px 20px;margin-bottom:12px">',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;'
+                    'letter-spacing:.06em;margin-bottom:10px">🔀 Roleplay Augmentation</div>',
+                    unsafe_allow_html=True)
+                lc, rc = st.columns(2)
+                with lc:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:4px">Original Question</div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{row.get("original_question", "—")}</div>',
+                        unsafe_allow_html=True)
+                with rc:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">'
+                        'Augmented Roleplay <span style="font-weight:400;color:#94a3b8">(yellow = changes)</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{highlight_diff(row.get("original_question",""), row.get("Augmented Roleplay",""))}</div>',
+                        unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # Storyline
+                st.markdown(
+                    '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+                    'padding:16px 20px;margin-bottom:16px">',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;'
+                    'letter-spacing:.06em;margin-bottom:10px">📖 Storyline Augmentation</div>',
+                    unsafe_allow_html=True)
+                lc2, rc2 = st.columns(2)
+                with lc2:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:4px">Original Question</div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{row.get("original_question", "—")}</div>',
+                        unsafe_allow_html=True)
+                with rc2:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">'
+                        'Augmented Storyline <span style="font-weight:400;color:#94a3b8">(yellow = changes)</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{highlight_diff(row.get("original_question",""), row.get("Augmented Storyline",""))}</div>',
+                        unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # Pagination bar
+                new_page = render_pagination(cur_page, total_pages, "aug_hl")
+                if new_page != cur_page:
+                    st.session_state.aug_highlight_page = new_page
+                    st.rerun()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -765,67 +1056,115 @@ elif page == "evaluate":
     if st.session_state.aug_df is None:
         st.warning("⬅ Complete the Augmentation step first."); st.stop()
 
-    aug_df  = st.session_state.aug_df
-    prompts = st.session_state.prompts or {}
+    aug_df   = st.session_state.aug_df
+    prompts  = st.session_state.prompts or {}
     gen_done = st.session_state.gen_df is not None
 
     st.markdown(
-        f'<div style="background:white;border:1px solid {"#bbf7d0" if gen_done else "#e2e8f0"};border-radius:12px;padding:20px 24px;margin-bottom:20px;border-left:4px solid {"#16a34a" if gen_done else "#2563eb"}">',
+        f'<div style="background:white;border:1px solid {"#bbf7d0" if gen_done else "#e2e8f0"};'
+        f'border-radius:12px;padding:20px 24px;margin-bottom:20px;'
+        f'border-left:4px solid {"#16a34a" if gen_done else "#2563eb"}">',
         unsafe_allow_html=True)
     st.markdown(f"#### {'✅' if gen_done else '⏳'} Step 1 — Actual Outputs")
 
     if not gen_done:
-        m1,m2,m3 = st.columns(3)
-        m1.metric("Augmented Rows", len(aug_df)); m2.metric("Expected Column","Actual Output"); m3.metric("Status","Pending")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Augmented Rows", len(aug_df))
+        m2.metric("Expected Column", "Actual Output")
+        m3.metric("Status", "Pending")
         st.markdown("<br>", unsafe_allow_html=True)
-        tab_gen, tab_upl = st.tabs(["▶  Generate via AI","📤  Upload Pre-existing"])
+        tab_gen, tab_upl = st.tabs(["▶  Generate via AI", "📤  Upload Pre-existing"])
 
         with tab_gen:
             st.caption("Run the Travel Assistant AI on each Storyline augmentation.")
             st.markdown("<br>", unsafe_allow_html=True)
-            g_info, g_btn = st.columns([3,1])
+            g_info, g_btn = st.columns([3, 1])
             with g_info:
-                st.markdown(f'<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 16px;font-size:13px;color:#1e40af"><b>{len(aug_df)}</b> rows will be processed using the <b>assistant_response</b> prompt template.</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
+                    f'padding:10px 16px;font-size:13px;color:#1e40af">'
+                    f'<b>{len(aug_df)}</b> rows will be processed using the '
+                    f'<b>assistant_response</b> prompt template.</div>',
+                    unsafe_allow_html=True)
             with g_btn:
                 btn_gen = st.button("▶ Generate", type="primary", key="btn_gen", use_container_width=True)
             if btn_gen:
                 progress = st.progress(0, text="Starting generation…")
+
                 async def generate_all():
                     async def one(storyline, expected):
-                        p = prompts.get("assistant_response","").replace("{{question}}",str(storyline)).replace("{{expected_output}}",str(expected))
+                        p = (prompts.get("assistant_response", "")
+                             .replace("{{question}}", str(storyline))
+                             .replace("{{expected_output}}", str(expected)))
                         r = await call_llm(p, json_mode=False)
                         return str(r) if r else ""
-                    return await asyncio.gather(*[one(row["Augmented Storyline"],row.get("expected_output","")) for _,row in aug_df.iterrows()], return_exceptions=True)
+                    return await asyncio.gather(
+                        *[one(row["Augmented Storyline"], row.get("expected_output", ""))
+                          for _, row in aug_df.iterrows()],
+                        return_exceptions=True)
+
                 gen_results = run_async(generate_all())
-                for i in range(len(gen_results)): progress.progress((i+1)/len(gen_results), text=f"Generated {i+1}/{len(gen_results)}…")
+                for i in range(len(gen_results)):
+                    progress.progress((i + 1) / len(gen_results), text=f"Generated {i+1}/{len(gen_results)}…")
                 progress.empty()
-                tmp = aug_df.copy(); tmp["Actual Output"] = [str(r) if not isinstance(r,Exception) else "" for r in gen_results]
-                tmp.to_excel(OUTPUT_DIR/"step3_generated.xlsx", index=False)
-                st.session_state.gen_df = tmp; st.success(f"✅ {len(tmp)} outputs generated."); st.rerun()
+                tmp = aug_df.copy()
+                tmp["Actual Output"] = [str(r) if not isinstance(r, Exception) else "" for r in gen_results]
+                tmp.to_excel(OUTPUT_DIR / "step3_generated.xlsx", index=False)
+                st.session_state.gen_df = tmp
+                st.session_state.diff_viewer_page = 0
+                st.success(f"✅ {len(tmp)} outputs generated.")
+                st.rerun()
 
         with tab_upl:
             st.caption("Upload a file containing an **Actual Output** column matching the augmentation row count.")
             st.markdown("<br>", unsafe_allow_html=True)
-            u_info, u_area = st.columns([1,2])
+            u_info, u_area = st.columns([1, 2])
             with u_info:
-                st.markdown(f'<div style="background:#fafafa;border:1px solid #e2e8f0;border-radius:8px;padding:14px"><div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Requirements</div><div style="font-size:12px;color:#475569;line-height:1.8">• Format: .xlsx or .csv<br>• Must have <code>Actual Output</code> column<br>• Row count must match: <b>{len(aug_df)}</b></div></div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:#fafafa;border:1px solid #e2e8f0;border-radius:8px;padding:14px">'
+                    f'<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'
+                    f'letter-spacing:.05em;margin-bottom:8px">Requirements</div>'
+                    f'<div style="font-size:12px;color:#475569;line-height:1.8">'
+                    f'• Format: .xlsx or .csv<br>• Must have <code>Actual Output</code> column<br>'
+                    f'• Row count must match: <b>{len(aug_df)}</b></div></div>',
+                    unsafe_allow_html=True)
             with u_area:
-                upl_actual = st.file_uploader("Upload file with Actual Output column", type=None, key="upl_actual", label_visibility="collapsed")
+                upl_actual = st.file_uploader(
+                    "Upload file with Actual Output column", type=None,
+                    key="upl_actual", label_visibility="collapsed")
                 if upl_actual:
                     try:
                         raw    = upl_actual.read()
-                        upl_df = pd.read_excel(io.BytesIO(raw),engine="openpyxl") if upl_actual.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw))
+                        upl_df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
+                                  if upl_actual.name.endswith(".xlsx")
+                                  else pd.read_csv(io.BytesIO(raw)))
                         col_ok  = "Actual Output" in upl_df.columns
                         rows_ok = len(upl_df) == len(aug_df)
-                        vc1,vc2 = st.columns(2)
-                        vc1.markdown(f'<div style="background:{"#f0fdf4" if col_ok else "#fef2f2"};border:1px solid {"#bbf7d0" if col_ok else "#fecaca"};border-radius:6px;padding:8px 12px;font-size:12px;font-weight:600;color:{"#16a34a" if col_ok else "#dc2626"}">{"✓" if col_ok else "✗"} Actual Output column</div>', unsafe_allow_html=True)
-                        vc2.markdown(f'<div style="background:{"#f0fdf4" if rows_ok else "#fef2f2"};border:1px solid {"#bbf7d0" if rows_ok else "#fecaca"};border-radius:6px;padding:8px 12px;font-size:12px;font-weight:600;color:{"#16a34a" if rows_ok else "#dc2626"}">{"✓" if rows_ok else "✗"} Row count ({len(upl_df)} vs {len(aug_df)})</div>', unsafe_allow_html=True)
+                        vc1, vc2 = st.columns(2)
+                        vc1.markdown(
+                            f'<div style="background:{"#f0fdf4" if col_ok else "#fef2f2"};'
+                            f'border:1px solid {"#bbf7d0" if col_ok else "#fecaca"};border-radius:6px;'
+                            f'padding:8px 12px;font-size:12px;font-weight:600;'
+                            f'color:{"#16a34a" if col_ok else "#dc2626"}">'
+                            f'{"✓" if col_ok else "✗"} Actual Output column</div>',
+                            unsafe_allow_html=True)
+                        vc2.markdown(
+                            f'<div style="background:{"#f0fdf4" if rows_ok else "#fef2f2"};'
+                            f'border:1px solid {"#bbf7d0" if rows_ok else "#fecaca"};border-radius:6px;'
+                            f'padding:8px 12px;font-size:12px;font-weight:600;'
+                            f'color:{"#16a34a" if rows_ok else "#dc2626"}">'
+                            f'{"✓" if rows_ok else "✗"} Row count ({len(upl_df)} vs {len(aug_df)})</div>',
+                            unsafe_allow_html=True)
                         if col_ok and rows_ok:
                             st.markdown("<br>", unsafe_allow_html=True)
                             if st.button("✅ Confirm & Load", type="primary", key="btn_confirm_upl"):
-                                tmp = aug_df.copy(); tmp["Actual Output"] = upl_df["Actual Output"].values
-                                tmp.to_excel(OUTPUT_DIR/"step3_generated.xlsx", index=False)
-                                st.session_state.gen_df = tmp; st.success(f"✅ {len(tmp)} outputs loaded."); st.rerun()
+                                tmp = aug_df.copy()
+                                tmp["Actual Output"] = upl_df["Actual Output"].values
+                                tmp.to_excel(OUTPUT_DIR / "step3_generated.xlsx", index=False)
+                                st.session_state.gen_df = tmp
+                                st.session_state.diff_viewer_page = 0
+                                st.success(f"✅ {len(tmp)} outputs loaded.")
+                                st.rerun()
                         else:
                             if not col_ok: st.error("❌ Missing 'Actual Output' column.")
                             if not rows_ok: st.error(f"❌ Row mismatch: expected {len(aug_df)}, got {len(upl_df)}.")
@@ -833,125 +1172,236 @@ elif page == "evaluate":
                         st.error(f"Upload error: {e}")
     else:
         gdf = st.session_state.gen_df
-        ch, cd = st.columns([3,1])
+        ch, cd = st.columns([3, 1])
         with ch:
-            st.markdown(f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>', unsafe_allow_html=True)
+            st.markdown(
+                f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;'
+                f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>',
+                unsafe_allow_html=True)
         with cd:
-            green_download("⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
+            green_download(
+                "⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
+
         gc = [c for c in ["A_Code","Category","Subtype","Augmented Storyline","expected_output","Actual Output"] if c in gdf.columns]
         st.dataframe(gdf[gc], use_container_width=True, height=fit_height(gdf))
-        with st.expander("🔍 Diff Viewer — Expected vs Actual", expanded=False):
-            d1,d2 = st.columns([1,3])
-            with d1:
-                cat_f = st.selectbox("Category",["All"]+sorted(gdf["Category"].dropna().unique().tolist()),key="gen_cat")
-                fdf_g = gdf if cat_f=="All" else gdf[gdf["Category"]==cat_f].reset_index(drop=True)
-                ridx  = st.number_input(f"Row (0–{max(len(fdf_g)-1,0)})",min_value=0,max_value=max(len(fdf_g)-1,0),value=0,step=1,key="gen_idx")
-                if len(fdf_g)>0:
-                    rw = fdf_g.iloc[int(ridx)]
-                    st.markdown(f"**Code:** `{rw.get('A_Code','—')}`"); st.markdown(f"**Subtype:** {rw.get('Subtype','—')}")
-            with d2:
-                if len(fdf_g)>0:
-                    rw = fdf_g.iloc[int(ridx)]
-                    side_by_side_diff(str(rw.get("expected_output","")), str(rw.get("Actual Output","")))
+
+        # ── DIFF VIEWER — PAGINATED ───────────────────────────────────────────
+        st.divider()
+        section_label("🔍 DIFF VIEWER — EXPECTED VS ACTUAL")
+
+        # Filter bar
+        dv_cat = st.selectbox(
+            "Filter by Category",
+            ["All"] + sorted(gdf["Category"].dropna().unique().tolist()),
+            key="dv_cat_filter")
+        fdf_dv = gdf if dv_cat == "All" else gdf[gdf["Category"] == dv_cat].reset_index(drop=True)
+
+        dv_total = len(fdf_dv)
+        dv_page  = st.session_state.diff_viewer_page
+
+        # Clamp
+        if dv_page >= dv_total:
+            dv_page = max(0, dv_total - 1)
+            st.session_state.diff_viewer_page = dv_page
+
+        if dv_total > 0:
+            dv_row = fdf_dv.iloc[dv_page]
+
+            # Info badge strip
+            st.markdown(
+                f'<div style="display:flex;align-items:center;gap:10px;'
+                f'background:white;border:1px solid #e2e8f0;border-radius:8px;'
+                f'padding:8px 16px;margin-bottom:12px;flex-wrap:wrap">'
+                f'<span style="font-size:12px;font-weight:700;color:#0f172a">'
+                f'Record {dv_page + 1} of {dv_total}</span>'
+                f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;'
+                f'border-radius:20px;font-size:11px;font-weight:700">{dv_row.get("A_Code","—")}</span>'
+                f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;'
+                f'border-radius:20px;font-size:11px;font-weight:600">{dv_row.get("Category","—")}</span>'
+                f'<span style="font-size:11px;color:#64748b">{dv_row.get("Subtype","—")}</span>'
+                f'</div>',
+                unsafe_allow_html=True)
+
+            # Augmented question context
+            with st.expander("📝 Augmented Storyline (input)", expanded=False):
+                st.markdown(
+                    f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                    f'padding:12px 16px;font-size:13px;line-height:1.7;color:#334155">'
+                    f'{dv_row.get("Augmented Storyline","—")}</div>',
+                    unsafe_allow_html=True)
+
+            side_by_side_diff(
+                str(dv_row.get("expected_output", "")),
+                str(dv_row.get("Actual Output", "")))
+
+            # Pagination
+            new_dv = render_pagination(dv_page, dv_total, "dv")
+            if new_dv != dv_page:
+                st.session_state.diff_viewer_page = new_dv
+                st.rerun()
+        else:
+            st.info("No records match the current filter.")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
     if gen_done:
         eval_done = st.session_state.eval_df is not None
-        st.markdown(f'<div style="background:white;border:1px solid {"#bbf7d0" if eval_done else "#e2e8f0"};border-radius:12px;padding:20px 24px;margin-bottom:20px;border-left:4px solid {"#16a34a" if eval_done else "#f59e0b"}">', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:white;border:1px solid {"#bbf7d0" if eval_done else "#e2e8f0"};'
+            f'border-radius:12px;padding:20px 24px;margin-bottom:20px;'
+            f'border-left:4px solid {"#16a34a" if eval_done else "#f59e0b"}">',
+            unsafe_allow_html=True)
         st.markdown(f"#### {'✅' if eval_done else '⏳'} Step 2 — Evaluation Scoring")
         st.caption(f"Score each output on 5 fairness metrics. Threshold ≥ {THRESHOLD} = Fail.")
 
         if not eval_done:
             gdf = st.session_state.gen_df
-            c1,c2,c3 = st.columns(3)
-            c1.metric("Records",len(gdf)); c2.metric("Metrics / Record",5); c3.metric("Threshold",f"< {THRESHOLD}")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Records", len(gdf))
+            c2.metric("Metrics / Record", 5)
+            c3.metric("Threshold", f"< {THRESHOLD}")
             if st.button("▶ Run Evaluation", type="primary", key="btn_eval"):
                 progress = st.progress(0, text="Starting evaluation…")
+
                 async def evaluate_all():
                     async def one(expected, actual):
-                        p = prompts.get("evaluation","").replace("{{baseline}}",str(expected)).replace("{{persona}}",str(actual))
+                        p = (prompts.get("evaluation", "")
+                             .replace("{{baseline}}", str(expected))
+                             .replace("{{persona}}", str(actual)))
                         return await call_llm(p)
-                    return await asyncio.gather(*[one(row.get("expected_output",""),row.get("Actual Output","")) for _,row in gdf.iterrows()], return_exceptions=True)
+                    return await asyncio.gather(
+                        *[one(row.get("expected_output", ""), row.get("Actual Output", ""))
+                          for _, row in gdf.iterrows()],
+                        return_exceptions=True)
+
                 eval_results = run_async(evaluate_all())
-                for i in range(len(eval_results)): progress.progress((i+1)/len(eval_results), text=f"Evaluating {i+1}/{len(eval_results)}…")
+                for i in range(len(eval_results)):
+                    progress.progress((i + 1) / len(eval_results), text=f"Evaluating {i+1}/{len(eval_results)}…")
                 progress.empty()
+
                 edf = gdf.copy()
-                key_map = {"Decision Flip":("decision_flip_score","decision_flip_reason","Reason_Flip"),"Fairness Degradation":("fairness_degradation_score","fairness_degradation_reason","Reason_Fairness"),"Tone Inequality":("tone_inequality_score","tone_inequality_reason","Reason_Tone"),"Safety_Drift":("safety_drift_score","safety_drift_reason","Reason_Safety"),"Stereotype Injection":("stereotype_injection_score","stereotype_injection_reason","Reason_Stereo")}
-                for col in METRIC_KEYS+REASON_KEYS+STATUS_KEYS: edf[col] = None
-                for i,(res,(_,row)) in enumerate(zip(eval_results,gdf.iterrows())):
-                    if isinstance(res,Exception) or not res:
-                        for m in METRIC_KEYS: edf.at[row.name,m]=0.0
-                        for rk in REASON_KEYS: edf.at[row.name,rk]="No issue detected."
+                key_map = {
+                    "Decision Flip":       ("decision_flip_score",       "decision_flip_reason",       "Reason_Flip"),
+                    "Fairness Degradation":("fairness_degradation_score", "fairness_degradation_reason","Reason_Fairness"),
+                    "Tone Inequality":     ("tone_inequality_score",      "tone_inequality_reason",     "Reason_Tone"),
+                    "Safety_Drift":        ("safety_drift_score",         "safety_drift_reason",        "Reason_Safety"),
+                    "Stereotype Injection":("stereotype_injection_score", "stereotype_injection_reason","Reason_Stereo"),
+                }
+                for col in METRIC_KEYS + REASON_KEYS + STATUS_KEYS:
+                    edf[col] = None
+                for i, (res, (_, row)) in enumerate(zip(eval_results, gdf.iterrows())):
+                    if isinstance(res, Exception) or not res:
+                        for m in METRIC_KEYS: edf.at[row.name, m] = 0.0
+                        for rk in REASON_KEYS: edf.at[row.name, rk] = "No issue detected."
                         continue
-                    for metric,(sk,rk,rc) in key_map.items():
-                        edf.at[row.name,metric]=float(res.get(sk,0.0)); edf.at[row.name,rc]=res.get(rk,"No issue detected.")
-                for m in METRIC_KEYS: edf[m]=pd.to_numeric(edf[m],errors="coerce").fillna(0.0)
-                for mk,sk in zip(METRIC_KEYS,STATUS_KEYS): edf[sk]=edf[mk].apply(get_metric_status)
-                edf["Status"]=edf.apply(compute_global_status,axis=1)
-                edf.insert(0,"id",range(1,len(edf)+1))
-                edf.to_excel(OUTPUT_DIR/"bias_results.xlsx",index=False)
-                st.session_state.eval_df=edf;         st.success("✅ Evaluation complete!"); st.rerun()
+                    for metric, (sk, rk, rc) in key_map.items():
+                        edf.at[row.name, metric] = float(res.get(sk, 0.0))
+                        edf.at[row.name, rc]     = res.get(rk, "No issue detected.")
+                for m in METRIC_KEYS:
+                    edf[m] = pd.to_numeric(edf[m], errors="coerce").fillna(0.0)
+                for mk, sk in zip(METRIC_KEYS, STATUS_KEYS):
+                    edf[sk] = edf[mk].apply(get_metric_status)
+                edf["Status"] = edf.apply(compute_global_status, axis=1)
+                edf.insert(0, "id", range(1, len(edf) + 1))
+                edf.to_excel(OUTPUT_DIR / "bias_results.xlsx", index=False)
+                st.session_state.eval_df = edf
+                st.success("✅ Evaluation complete!")
+                st.rerun()
 
         st.markdown('</div>', unsafe_allow_html=True)
 
     if st.session_state.eval_df is not None:
         edf   = st.session_state.eval_df
-        fail_ = edf[edf["Status"]=="Fail"]
-        crit_ = edf[edf[METRIC_KEYS].ge(THRESHOLD).sum(axis=1)>=3]
+        fail_ = edf[edf["Status"] == "Fail"]
+        crit_ = edf[edf[METRIC_KEYS].ge(THRESHOLD).sum(axis=1) >= 3]
 
-        st.divider(); section_label("EVALUATION SUMMARY")
-        c1,c2,c3,c4 = st.columns(4)
-        c1.metric("Total Records",len(edf)); c2.metric("Failed",len(fail_)); c3.metric("Critical (≥3)",len(crit_))
-        c4.metric("Pass Rate",f"{(1-len(fail_)/len(edf))*100:.1f}%" if len(edf)>0 else "—")
+        st.divider()
+        section_label("EVALUATION SUMMARY")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total Records", len(edf))
+        c2.metric("Failed", len(fail_))
+        c3.metric("Critical (≥3)", len(crit_))
+        c4.metric("Pass Rate", f"{(1-len(fail_)/len(edf))*100:.1f}%" if len(edf) > 0 else "—")
 
-        st.markdown("<br>",unsafe_allow_html=True); section_label("PER-METRIC AVERAGES")
+        st.markdown("<br>", unsafe_allow_html=True)
+        section_label("PER-METRIC AVERAGES")
         mc = st.columns(5)
-        for i,(m,c) in enumerate(zip(METRIC_KEYS,M_COLORS)):
-            mc[i].markdown(metric_pill(m,edf[m].mean(),c),unsafe_allow_html=True)
-            mc[i].caption(f"{(edf[m]>=THRESHOLD).sum()} failures")
+        for i, (m, c) in enumerate(zip(METRIC_KEYS, M_COLORS)):
+            mc[i].markdown(metric_pill(m, edf[m].mean(), c), unsafe_allow_html=True)
+            mc[i].caption(f"{(edf[m] >= THRESHOLD).sum()} failures")
 
-        st.divider(); section_label("EVALUATION TABLE")
-        fc1,fc2,fc3,fc4,fc5 = st.columns([3,1,1.2,1.5,1])
-        with fc1: search   = st.text_input("🔍 Search","",key="eval_search",placeholder="Type to search…")
-        with fc2: status_f = st.selectbox("Status",["All","Pass","Fail"],key="eval_sf")
-        with fc3: cat_f    = st.selectbox("Category",["All"]+sorted(edf["Category"].dropna().unique().tolist()),key="eval_cf")
-        with fc4: metric_f = st.selectbox("Metric",["All"]+METRIC_KEYS,key="eval_mf")
-        with fc5: metric_sf= st.selectbox("Metric Status",["All","Pass","Fail"],key="eval_msf")
+        st.divider()
+        section_label("EVALUATION TABLE")
+        fc1, fc2, fc3, fc4, fc5 = st.columns([3, 1, 1.2, 1.5, 1])
+        with fc1: search    = st.text_input("🔍 Search", "", key="eval_search", placeholder="Type to search…")
+        with fc2: status_f  = st.selectbox("Status", ["All","Pass","Fail"], key="eval_sf")
+        with fc3: cat_f     = st.selectbox("Category", ["All"]+sorted(edf["Category"].dropna().unique().tolist()), key="eval_cf")
+        with fc4: metric_f  = st.selectbox("Metric", ["All"]+METRIC_KEYS, key="eval_mf")
+        with fc5: metric_sf = st.selectbox("Metric Status", ["All","Pass","Fail"], key="eval_msf")
 
         fdf = edf.copy()
-        if search: fdf = fdf[fdf.apply(lambda r: r.astype(str).str.contains(search,case=False).any(),axis=1)]
-        if status_f!="All": fdf=fdf[fdf["Status"]==status_f]
-        if cat_f!="All":    fdf=fdf[fdf["Category"]==cat_f]
-        if metric_f!="All" and metric_f in fdf.columns:
-            mi=METRIC_KEYS.index(metric_f); sk=STATUS_KEYS[mi]
-            if metric_sf!="All" and sk in fdf.columns: fdf=fdf[fdf[sk]==metric_sf]
-            fdf=fdf.sort_values(metric_f,ascending=False)
-        elif metric_sf!="All":
-            fdf=fdf[fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)] if metric_sf=="Fail" else fdf[~fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)]
+        if search:    fdf = fdf[fdf.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
+        if status_f != "All": fdf = fdf[fdf["Status"] == status_f]
+        if cat_f    != "All": fdf = fdf[fdf["Category"] == cat_f]
+        if metric_f != "All" and metric_f in fdf.columns:
+            mi = METRIC_KEYS.index(metric_f); sk = STATUS_KEYS[mi]
+            if metric_sf != "All" and sk in fdf.columns:
+                fdf = fdf[fdf[sk] == metric_sf]
+            fdf = fdf.sort_values(metric_f, ascending=False)
+        elif metric_sf != "All":
+            fdf = (fdf[fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)]
+                   if metric_sf == "Fail"
+                   else fdf[~fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)])
 
-        ic,dc = st.columns([4,1])
+        ic, dc = st.columns([4, 1])
         with ic: st.caption(f"Showing {len(fdf)} of {len(edf)} records")
-        with dc: green_download("⬇ Download",to_excel_bytes(edf),"bias_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_eval")
+        with dc: green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_eval")
 
-        disp=[c for c in ["id","A_Code","Category","Subtype","Bias Type","Status"]+METRIC_KEYS+REASON_KEYS if c in fdf.columns]
-        st.dataframe(fdf[disp].style.applymap(style_status,subset=["Status"]).applymap(style_metric,subset=[m for m in METRIC_KEYS if m in fdf.columns]),use_container_width=True,height=fit_height(fdf))
+        disp = [c for c in ["id","A_Code","Category","Subtype","Bias Type","Status"]+METRIC_KEYS+REASON_KEYS if c in fdf.columns]
+        st.dataframe(
+            fdf[disp].style
+            .applymap(style_status, subset=["Status"])
+            .applymap(style_metric, subset=[m for m in METRIC_KEYS if m in fdf.columns]),
+            use_container_width=True, height=fit_height(fdf))
 
-        st.divider(); section_label("FAILURE REASONS — BIAS HIGHLIGHTED")
-        fail_only=fdf[fdf["Status"]=="Fail"]
-        if len(fail_only)>0:
-            for _,row in fail_only.head(20).iterrows():
-                fn=[m for m in METRIC_KEYS if float(row.get(m,0))>=THRESHOLD]
-                with st.expander(f"❌  {row.get('A_Code','—')} · {row.get('Subtype','—')} — {row.get('Category','—')}  |  {len(fn)} metric(s) failed",expanded=False):
+        st.divider()
+        section_label("FAILURE REASONS — BIAS HIGHLIGHTED")
+        fail_only = fdf[fdf["Status"] == "Fail"]
+        if len(fail_only) > 0:
+            for _, row in fail_only.head(20).iterrows():
+                fn = [m for m in METRIC_KEYS if float(row.get(m, 0)) >= THRESHOLD]
+                with st.expander(
+                    f"❌  {row.get('A_Code','—')} · {row.get('Subtype','—')} — "
+                    f"{row.get('Category','—')}  |  {len(fn)} metric(s) failed",
+                    expanded=False):
                     st.markdown(f"**Bias Pattern:** `{row.get('Bias Type','—')}`")
-                    bias_html=highlight_bias_in_output(str(row.get("Actual Output","")),fn,{rk:row.get(rk,"") for rk in REASON_KEYS})
-                    st.markdown('<div style="font-size:10px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🔴 Actual Output — Bias Keywords Highlighted</div>',unsafe_allow_html=True)
-                    st.markdown(f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.9;color:#334155;min-height:60px">{bias_html}</div>',unsafe_allow_html=True)
-                    st.markdown("---"); st.markdown("**Metric Breakdown**")
-                    rc=st.columns(5)
-                    for i,(mk,rk,sk) in enumerate(zip(METRIC_KEYS,REASON_KEYS,STATUS_KEYS)):
-                        v=float(row.get(mk,0)); fail=v>=THRESHOLD
-                        rc[i].markdown(f'<div style="background:{"#fee2e2" if fail else "#f0fdf4"};border-radius:8px;padding:10px;border-top:3px solid {M_COLORS[i]}"><div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">{mk}</div><div style="font-size:20px;font-weight:800;color:{"#dc2626" if fail else "#16a34a"}">{v:.2f}</div><div style="font-size:10px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"};margin:4px 0">{"● FAIL" if fail else "● PASS"}</div><div style="font-size:11px;color:#475569;line-height:1.5;margin-top:4px">{row.get(rk,"—")}</div></div>',unsafe_allow_html=True)
+                    bias_html = highlight_bias_in_output(
+                        str(row.get("Actual Output", "")), fn,
+                        {rk: row.get(rk, "") for rk in REASON_KEYS})
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#991b1b;text-transform:uppercase;'
+                        'letter-spacing:.06em;margin-bottom:6px">🔴 Actual Output — Bias Keywords Highlighted</div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;'
+                        f'padding:14px 16px;font-size:13px;line-height:1.9;color:#334155;min-height:60px">'
+                        f'{bias_html}</div>',
+                        unsafe_allow_html=True)
+                    st.markdown("---")
+                    st.markdown("**Metric Breakdown**")
+                    rc_cols = st.columns(5)
+                    for i, (mk, rk, sk) in enumerate(zip(METRIC_KEYS, REASON_KEYS, STATUS_KEYS)):
+                        v = float(row.get(mk, 0)); fail = v >= THRESHOLD
+                        rc_cols[i].markdown(
+                            f'<div style="background:{"#fee2e2" if fail else "#f0fdf4"};border-radius:8px;'
+                            f'padding:10px;border-top:3px solid {M_COLORS[i]}">'
+                            f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">{mk}</div>'
+                            f'<div style="font-size:20px;font-weight:800;color:{"#dc2626" if fail else "#16a34a"}">{v:.2f}</div>'
+                            f'<div style="font-size:10px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"};margin:4px 0">{"● FAIL" if fail else "● PASS"}</div>'
+                            f'<div style="font-size:11px;color:#475569;line-height:1.5;margin-top:4px">{row.get(rk,"—")}</div></div>',
+                            unsafe_allow_html=True)
         else:
             st.success("No failures in current filter.")
 
@@ -971,128 +1421,186 @@ elif page == "analysis":
     categories = sorted(edf["Category"].dropna().unique().tolist())
 
     cols = st.columns(6)
-    for col,(lbl,val),clr in zip(cols,[("Total Tests",len(edf)),("Failed",len(fail_df)),("Critical",len(crit_df)),("Failure Rate",f"{len(fail_df)/len(edf)*100:.1f}%"),("Categories",edf["Category"].nunique()),("Subtypes",edf["Subtype"].nunique())],["#2563eb","#ef4444","#f59e0b","#ef4444","#6366f1","#06b6d4"]):
-        col.markdown(f'<div class="kpi-card" style="border-left-color:{clr};text-align:center"><div class="kpi-label">{lbl}</div><div class="kpi-value">{val}</div></div>',unsafe_allow_html=True)
+    for col,(lbl,val),clr in zip(cols,[
+        ("Total Tests",len(edf)),("Failed",len(fail_df)),("Critical",len(crit_df)),
+        ("Failure Rate",f"{len(fail_df)/len(edf)*100:.1f}%"),
+        ("Categories",edf["Category"].nunique()),("Subtypes",edf["Subtype"].nunique())],
+        ["#2563eb","#ef4444","#f59e0b","#ef4444","#6366f1","#06b6d4"]):
+        col.markdown(
+            f'<div class="kpi-card" style="border-left-color:{clr};text-align:center">'
+            f'<div class="kpi-label">{lbl}</div><div class="kpi-value">{val}</div></div>',
+            unsafe_allow_html=True)
 
-    _,dc=st.columns([3,1])
-    with dc: green_download("⬇ Download",to_excel_bytes(edf),"bias_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_ana")
+    _, dc = st.columns([3,1])
+    with dc:
+        green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_ana")
 
     st.divider()
-    c1,c2=st.columns(2)
+    c1, c2 = st.columns(2)
     with c1:
         section_label("AVG METRIC SCORE BY CATEGORY")
-        ca=edf.groupby("Category")[METRIC_KEYS].mean().reset_index(); ca["short"]=ca["Category"].str.split(" ").str[0]
-        fig=go.Figure()
-        for m,c in zip(METRIC_KEYS,M_COLORS): fig.add_trace(go.Bar(name=m,x=ca["short"],y=ca[m],marker_color=c))
-        fig.update_layout(**PLOT_LAYOUT,barmode="group",height=320,legend=dict(font_size=9,orientation="h",y=-0.2),yaxis=dict(gridcolor="#f1f5f9"))
-        st.plotly_chart(fig,use_container_width=True)
+        ca = edf.groupby("Category")[METRIC_KEYS].mean().reset_index()
+        ca["short"] = ca["Category"].str.split(" ").str[0]
+        fig = go.Figure()
+        for m, c in zip(METRIC_KEYS, M_COLORS):
+            fig.add_trace(go.Bar(name=m, x=ca["short"], y=ca[m], marker_color=c))
+        fig.update_layout(**PLOT_LAYOUT, barmode="group", height=320,
+                          legend=dict(font_size=9, orientation="h", y=-0.2),
+                          yaxis=dict(gridcolor="#f1f5f9"))
+        st.plotly_chart(fig, use_container_width=True)
     with c2:
         section_label("FAILURE RATE BY CATEGORY")
-        cf=edf.groupby("Category").apply(lambda x:(x["Status"]=="Fail").sum()/len(x)).reset_index(name="rate"); cf["short"]=cf["Category"].str.split(" ").str[0]
-        fig2=go.Figure(go.Bar(x=cf["rate"],y=cf["short"],orientation="h",marker_color=cf["rate"].apply(score_color),text=cf["rate"].apply(lambda v:f"{v*100:.0f}%"),textposition="outside"))
-        fig2.add_vline(x=THRESHOLD,line_dash="dash",line_color="#f59e0b",annotation_text="Threshold")
-        fig2.update_layout(**PLOT_LAYOUT,height=320,xaxis=dict(range=[0,1.2],gridcolor="#f1f5f9"))
-        st.plotly_chart(fig2,use_container_width=True)
+        cf = edf.groupby("Category").apply(lambda x: (x["Status"]=="Fail").sum()/len(x)).reset_index(name="rate")
+        cf["short"] = cf["Category"].str.split(" ").str[0]
+        fig2 = go.Figure(go.Bar(
+            x=cf["rate"], y=cf["short"], orientation="h",
+            marker_color=cf["rate"].apply(score_color),
+            text=cf["rate"].apply(lambda v: f"{v*100:.0f}%"),
+            textposition="outside"))
+        fig2.add_vline(x=THRESHOLD, line_dash="dash", line_color="#f59e0b", annotation_text="Threshold")
+        fig2.update_layout(**PLOT_LAYOUT, height=320, xaxis=dict(range=[0,1.2], gridcolor="#f1f5f9"))
+        st.plotly_chart(fig2, use_container_width=True)
 
     st.divider()
-    c3,c4=st.columns(2)
+    c3, c4 = st.columns(2)
     with c3:
         section_label("CATEGORY RADAR")
-        sel_cat=st.selectbox("Category",categories,key="ana_r")
-        cv=edf[edf["Category"]==sel_cat][METRIC_KEYS].mean(); theta=METRIC_KEYS+[METRIC_KEYS[0]]
-        fr=go.Figure(go.Scatterpolar(r=cv.tolist()+[cv.iloc[0]],theta=theta,fill="toself",fillcolor="rgba(37,99,235,0.1)",line=dict(color="#2563eb",width=2)))
-        fr.update_layout(polar=dict(radialaxis=dict(visible=True,range=[0,1],gridcolor="#e2e8f0"),angularaxis=dict(gridcolor="#e2e8f0")),paper_bgcolor="white",font=dict(color="#334155",size=10),height=320,margin=dict(l=30,r=30,t=20,b=20))
-        st.plotly_chart(fr,use_container_width=True)
+        sel_cat = st.selectbox("Category", categories, key="ana_r")
+        cv = edf[edf["Category"]==sel_cat][METRIC_KEYS].mean()
+        theta = METRIC_KEYS + [METRIC_KEYS[0]]
+        fr = go.Figure(go.Scatterpolar(
+            r=cv.tolist() + [cv.iloc[0]], theta=theta, fill="toself",
+            fillcolor="rgba(37,99,235,0.1)", line=dict(color="#2563eb", width=2)))
+        fr.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0,1], gridcolor="#e2e8f0"),
+                       angularaxis=dict(gridcolor="#e2e8f0")),
+            paper_bgcolor="white", font=dict(color="#334155", size=10),
+            height=320, margin=dict(l=30, r=30, t=20, b=20))
+        st.plotly_chart(fr, use_container_width=True)
     with c4:
         section_label("TOP HIGH-RISK SUBTYPES")
-        sr=edf.groupby("Subtype")[METRIC_KEYS].max().max(axis=1).sort_values(ascending=False).head(10)
-        f4=go.Figure(go.Bar(x=sr.values,y=sr.index,orientation="h",marker_color=[score_color(v) for v in sr.values],text=[f"{v:.2f}" for v in sr.values],textposition="outside"))
-        f4.add_vline(x=THRESHOLD,line_dash="dash",line_color="#f59e0b")
-        f4.update_layout(**PLOT_LAYOUT,height=320,xaxis=dict(range=[0,1.2],gridcolor="#f1f5f9"))
-        st.plotly_chart(f4,use_container_width=True)
+        sr = edf.groupby("Subtype")[METRIC_KEYS].max().max(axis=1).sort_values(ascending=False).head(10)
+        f4 = go.Figure(go.Bar(
+            x=sr.values, y=sr.index, orientation="h",
+            marker_color=[score_color(v) for v in sr.values],
+            text=[f"{v:.2f}" for v in sr.values], textposition="outside"))
+        f4.add_vline(x=THRESHOLD, line_dash="dash", line_color="#f59e0b")
+        f4.update_layout(**PLOT_LAYOUT, height=320, xaxis=dict(range=[0,1.2], gridcolor="#f1f5f9"))
+        st.plotly_chart(f4, use_container_width=True)
 
     st.divider()
-    c5,c6=st.columns(2)
+    c5, c6 = st.columns(2)
     with c5:
         section_label("PASS / FAIL DISTRIBUTION")
-        fp=go.Figure(go.Pie(labels=["Pass","Fail"],values=[len(edf)-len(fail_df),len(fail_df)],hole=0.55,marker=dict(colors=["#10b981","#ef4444"]),textinfo="label+percent",textfont_size=12))
-        fp.update_layout(**PLOT_LAYOUT,height=300,showlegend=False); st.plotly_chart(fp,use_container_width=True)
+        fp = go.Figure(go.Pie(
+            labels=["Pass","Fail"], values=[len(edf)-len(fail_df), len(fail_df)],
+            hole=0.55, marker=dict(colors=["#10b981","#ef4444"]),
+            textinfo="label+percent", textfont_size=12))
+        fp.update_layout(**PLOT_LAYOUT, height=300, showlegend=False)
+        st.plotly_chart(fp, use_container_width=True)
     with c6:
         section_label("SCORE DISTRIBUTION (STACKED)")
-        bl=["0–0.1","0.1–0.2","0.2–0.3","0.3–0.4","0.4+"]; dd={m:[0]*5 for m in METRIC_KEYS}
+        bl = ["0–0.1","0.1–0.2","0.2–0.3","0.3–0.4","0.4+"]
+        dd = {m: [0]*5 for m in METRIC_KEYS}
         for m in METRIC_KEYS:
             for v in edf[m]:
-                dd[m][0 if v<0.1 else 1 if v<0.2 else 2 if v<0.3 else 3 if v<0.4 else 4]+=1
-        fd=go.Figure()
-        for m,c in zip(METRIC_KEYS,M_COLORS): fd.add_trace(go.Bar(name=m,x=bl,y=dd[m],marker_color=c))
-        fd.update_layout(**PLOT_LAYOUT,barmode="stack",height=300,legend=dict(font_size=9,orientation="h",y=-0.25),yaxis=dict(gridcolor="#f1f5f9"))
-        st.plotly_chart(fd,use_container_width=True)
+                dd[m][0 if v<0.1 else 1 if v<0.2 else 2 if v<0.3 else 3 if v<0.4 else 4] += 1
+        fd = go.Figure()
+        for m, c in zip(METRIC_KEYS, M_COLORS):
+            fd.add_trace(go.Bar(name=m, x=bl, y=dd[m], marker_color=c))
+        fd.update_layout(**PLOT_LAYOUT, barmode="stack", height=300,
+                         legend=dict(font_size=9, orientation="h", y=-0.25),
+                         yaxis=dict(gridcolor="#f1f5f9"))
+        st.plotly_chart(fd, use_container_width=True)
 
     st.divider()
     section_label("FAIRNESS DEGRADATION vs STEREOTYPE INJECTION")
-    sdf=edf[["Fairness Degradation","Stereotype Injection","Decision Flip","Category","Status","A_Code"]].copy()
-    fs=px.scatter(sdf,x="Fairness Degradation",y="Stereotype Injection",size="Decision Flip",color="Status",color_discrete_map={"Pass":"#10b981","Fail":"#ef4444"},hover_data=["A_Code","Category"],size_max=18,opacity=0.6)
-    fs.update_layout(**PLOT_LAYOUT,height=380,xaxis=dict(gridcolor="#f1f5f9"),yaxis=dict(gridcolor="#f1f5f9"))
-    st.plotly_chart(fs,use_container_width=True)
+    sdf = edf[["Fairness Degradation","Stereotype Injection","Decision Flip","Category","Status","A_Code"]].copy()
+    fs = px.scatter(sdf, x="Fairness Degradation", y="Stereotype Injection", size="Decision Flip",
+                    color="Status", color_discrete_map={"Pass":"#10b981","Fail":"#ef4444"},
+                    hover_data=["A_Code","Category"], size_max=18, opacity=0.6)
+    fs.update_layout(**PLOT_LAYOUT, height=380,
+                     xaxis=dict(gridcolor="#f1f5f9"), yaxis=dict(gridcolor="#f1f5f9"))
+    st.plotly_chart(fs, use_container_width=True)
 
     st.divider()
     section_label("CATEGORY × METRIC HEATMAP")
-    hd=[{"Category":cat,**{m:round(edf[edf["Category"]==cat][m].mean(),3) for m in METRIC_KEYS}} for cat in categories]
-    hdf=pd.DataFrame(hd).set_index("Category")
-    fh=go.Figure(go.Heatmap(z=hdf.values,x=hdf.columns,y=hdf.index,colorscale=[[0,"#f0fdf4"],[0.2,"#fefce8"],[0.4,"#fef2f2"],[1,"#ef4444"]],text=np.round(hdf.values,3),texttemplate="%{text}",textfont=dict(size=11,color="#0f172a"),hoverongaps=False,zmin=0,zmax=0.5))
-    fh.update_layout(**PLOT_LAYOUT,height=300,xaxis=dict(side="top"),yaxis=dict(autorange="reversed"))
-    st.plotly_chart(fh,use_container_width=True)
+    hd = [{"Category": cat, **{m: round(edf[edf["Category"]==cat][m].mean(), 3) for m in METRIC_KEYS}}
+          for cat in categories]
+    hdf = pd.DataFrame(hd).set_index("Category")
+    fh = go.Figure(go.Heatmap(
+        z=hdf.values, x=hdf.columns, y=hdf.index,
+        colorscale=[[0,"#f0fdf4"],[0.2,"#fefce8"],[0.4,"#fef2f2"],[1,"#ef4444"]],
+        text=np.round(hdf.values, 3), texttemplate="%{text}",
+        textfont=dict(size=11, color="#0f172a"), hoverongaps=False, zmin=0, zmax=0.5))
+    fh.update_layout(**PLOT_LAYOUT, height=300,
+                     xaxis=dict(side="top"), yaxis=dict(autorange="reversed"))
+    st.plotly_chart(fh, use_container_width=True)
 
     st.divider()
-    sr_h,sr_dl=st.columns([3,1])
+    sr_h, sr_dl = st.columns([3,1])
     with sr_h: section_label("SUBTYPE RISK TABLE")
-    sa=edf.groupby("Subtype")[METRIC_KEYS].mean(); sa["Max Score"]=sa.max(axis=1); sa=sa.sort_values("Max Score",ascending=False)
-    with sr_dl: green_download("⬇ Download",to_excel_bytes(sa.reset_index()),"subtype_risk.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_sub_risk")
+    sa = edf.groupby("Subtype")[METRIC_KEYS].mean()
+    sa["Max Score"] = sa.max(axis=1)
+    sa = sa.sort_values("Max Score", ascending=False)
+    with sr_dl:
+        green_download("⬇ Download", to_excel_bytes(sa.reset_index()), "subtype_risk.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_sub_risk")
+
     def cc(val):
         try:
-            v=float(val)
-            if v>=0.4: return "background-color:#fee2e2;color:#dc2626"
-            if v>=0.2: return "background-color:#fef9c3;color:#ca8a04"
+            v = float(val)
+            if v >= 0.4: return "background-color:#fee2e2;color:#dc2626"
+            if v >= 0.2: return "background-color:#fef9c3;color:#ca8a04"
             return "background-color:#dcfce7;color:#16a34a"
         except: return ""
-    st.dataframe(sa.style.applymap(cc),use_container_width=True,height=fit_height(sa))
+    st.dataframe(sa.style.applymap(cc), use_container_width=True, height=fit_height(sa))
 
     st.divider()
-    ft_h,ft_dl=st.columns([3,1])
+    ft_h, ft_dl = st.columns([3,1])
     with ft_h: section_label("FULL RESULTS TABLE")
-    with ft_dl: green_download("⬇ Download",to_excel_bytes(edf),"full_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_full_tbl")
-    fc=[c for c in ["id","A_Code","Category","Subtype","Bias Type","Status"]+METRIC_KEYS+REASON_KEYS+["original_question","Augmented Roleplay","Augmented Storyline","expected_output","Actual Output"] if c in edf.columns]
-    st.dataframe(edf[fc].style.applymap(style_status,subset=["Status"]).applymap(style_metric,subset=[m for m in METRIC_KEYS if m in edf.columns]),use_container_width=True,height=fit_height(edf))
+    with ft_dl:
+        green_download("⬇ Download", to_excel_bytes(edf), "full_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_full_tbl")
+    fc = [c for c in ["id","A_Code","Category","Subtype","Bias Type","Status"]+METRIC_KEYS+REASON_KEYS+
+          ["original_question","Augmented Roleplay","Augmented Storyline","expected_output","Actual Output"]
+          if c in edf.columns]
+    st.dataframe(
+        edf[fc].style
+        .applymap(style_status, subset=["Status"])
+        .applymap(style_metric, subset=[m for m in METRIC_KEYS if m in edf.columns]),
+        use_container_width=True, height=fit_height(edf))
 
     st.divider()
     section_label("DOWNLOAD ALL REPORTS")
-    st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;">',unsafe_allow_html=True)
-    dl_cols=st.columns(4)
+    st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;">', unsafe_allow_html=True)
+    dl_cols = st.columns(4)
     with dl_cols[0]:
-        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">📊</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Full Bias Results</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">All records with metric scores & reasons</div></div>',unsafe_allow_html=True)
-        green_download("⬇ bias_results.xlsx",to_excel_bytes(edf),"bias_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_all_bias")
+        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">📊</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Full Bias Results</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">All records with metric scores & reasons</div></div>', unsafe_allow_html=True)
+        green_download("⬇ bias_results.xlsx", to_excel_bytes(edf), "bias_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_bias")
     with dl_cols[1]:
-        fail_only_df=edf[edf["Status"]=="Fail"]
-        st.markdown(f'<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">❌</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Failures Only</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">{len(fail_only_df)} failed records</div></div>',unsafe_allow_html=True)
-        green_download("⬇ failures.xlsx",to_excel_bytes(fail_only_df),"failures.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_all_fail")
+        fail_only_df = edf[edf["Status"]=="Fail"]
+        st.markdown(f'<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">❌</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Failures Only</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">{len(fail_only_df)} failed records</div></div>', unsafe_allow_html=True)
+        green_download("⬇ failures.xlsx", to_excel_bytes(fail_only_df), "failures.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_fail")
     with dl_cols[2]:
-        sa_dl=edf.groupby("Subtype")[METRIC_KEYS].mean(); sa_dl["Max Score"]=sa_dl.max(axis=1); sa_dl=sa_dl.sort_values("Max Score",ascending=False).reset_index()
-        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">⚠️</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Subtype Risk Summary</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Avg scores per subtype</div></div>',unsafe_allow_html=True)
-        green_download("⬇ subtype_risk.xlsx",to_excel_bytes(sa_dl),"subtype_risk.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_all_sub")
+        sa_dl = edf.groupby("Subtype")[METRIC_KEYS].mean()
+        sa_dl["Max Score"] = sa_dl.max(axis=1)
+        sa_dl = sa_dl.sort_values("Max Score", ascending=False).reset_index()
+        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">⚠️</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Subtype Risk Summary</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Avg scores per subtype</div></div>', unsafe_allow_html=True)
+        green_download("⬇ subtype_risk.xlsx", to_excel_bytes(sa_dl), "subtype_risk.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_sub")
     with dl_cols[3]:
-        cat_summary=edf.groupby("Category").agg(Total=("id","count"),Failed=("Status",lambda x:(x=="Fail").sum()),**{m:(m,"mean") for m in METRIC_KEYS}).reset_index()
-        cat_summary["Failure Rate"]=(cat_summary["Failed"]/cat_summary["Total"]).round(3)
-        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">🗂</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Category Summary</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Failure rates by category</div></div>',unsafe_allow_html=True)
-        green_download("⬇ category_summary.xlsx",to_excel_bytes(cat_summary),"category_summary.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_all_cat")
-    st.markdown('</div>',unsafe_allow_html=True)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # GOVERNANCE REPORT SECTION
-    # ══════════════════════════════════════════════════════════════════════════
-    st.divider()
-    gov = st.session_state.governance_report
-
-    pass  # Analysis page ends here — Insights page is separate
+        cat_summary = edf.groupby("Category").agg(
+            Total=("id","count"), Failed=("Status", lambda x:(x=="Fail").sum()),
+            **{m:(m,"mean") for m in METRIC_KEYS}).reset_index()
+        cat_summary["Failure Rate"] = (cat_summary["Failed"]/cat_summary["Total"]).round(3)
+        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">🗂</div><div style="font-size:12px;font-weight:700;color:#0f172a;margin:4px 0">Category Summary</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Failure rates by category</div></div>', unsafe_allow_html=True)
+        green_download("⬇ category_summary.xlsx", to_excel_bytes(cat_summary), "category_summary.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_cat")
+    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1109,7 +1617,6 @@ elif page == "insights":
     prompts = st.session_state.prompts or {}
     gov     = st.session_state.governance_report
 
-    # ── Summary bar ──────────────────────────────────────────────────────────
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("Total Records",    len(edf))
     s2.metric("Categories",       edf["Category"].nunique())
@@ -1119,21 +1626,18 @@ elif page == "insights":
 
     st.divider()
 
-    # ── Two action buttons side by side ──────────────────────────────────────
     col_rc, col_gov = st.columns(2, gap="large")
 
-    # ── BUTTON 1: Root Cause Analysis ────────────────────────────────────────
     with col_rc:
         rc_done = gov is not None and bool(gov.get("root_causes"))
         st.markdown(
             f'<div style="background:white;border:1px solid {"#bbf7d0" if rc_done else "#e2e8f0"};'
             f'border-radius:12px;padding:18px 20px;border-left:4px solid {"#16a34a" if rc_done else "#6366f1"};'
             f'margin-bottom:16px">'
-            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
-            f'🔍 Root Cause Analysis</div>'
+            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">🔍 Root Cause Analysis</div>'
             f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
-            f'Identifies the top systemic root causes driving bias scores across '
-            f'all categories, with metric evidence and framework references.</div>'
+            f'Identifies the top systemic root causes driving bias scores across all categories, '
+            f'with metric evidence and framework references.</div>'
             f'{"<div style=margin-top:8px><span style=background:#f0fdf4;color:#16a34a;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0>✓ " + str(len(gov["root_causes"])) + " root causes generated</span></div>" if rc_done else ""}'
             f'</div>',
             unsafe_allow_html=True)
@@ -1146,34 +1650,27 @@ elif page == "insights":
             with st.spinner("Analysing root causes across all categories…"):
                 metrics_summary = build_metrics_summary(edf)
                 rc_raw = run_async(generate_root_causes(prompts, metrics_summary))
-
-            # preserve existing recommendations if any
             existing_recs = gov.get("recommendations", []) if gov else []
-            existing_at   = gov.get("generated_at", "") if gov else ""
-            recs_at        = gov.get("gov_generated_at", "") if gov else ""
-
+            recs_at       = gov.get("gov_generated_at", "") if gov else ""
             st.session_state.governance_report = {
-                "root_causes":       rc_raw.get("root_causes", []),
-                "recommendations":   existing_recs,
-                "generated_at":      __import__("datetime").datetime.now()
-                                     .strftime("%Y-%m-%d %H:%M:%S"),
-                "gov_generated_at":  recs_at,
+                "root_causes":      rc_raw.get("root_causes", []),
+                "recommendations":  existing_recs,
+                "generated_at":     __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "gov_generated_at": recs_at,
             }
             st.success(f"✅ {len(rc_raw.get('root_causes', []))} root causes generated.")
             st.rerun()
 
-    # ── BUTTON 2: Governance Recommendations ─────────────────────────────────
     with col_gov:
         gov_done = gov is not None and bool(gov.get("recommendations"))
         st.markdown(
             f'<div style="background:white;border:1px solid {"#bbf7d0" if gov_done else "#e2e8f0"};'
             f'border-radius:12px;padding:18px 20px;border-left:4px solid {"#16a34a" if gov_done else "#f59e0b"};'
             f'margin-bottom:16px">'
-            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
-            f'📋 Governance Recommendations</div>'
+            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">📋 Governance Recommendations</div>'
             f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
-            f'Generates 5 prioritised, actionable governance recommendations '
-            f'with expected impact and AI governance framework citations.</div>'
+            f'Generates 5 prioritised, actionable governance recommendations with expected impact '
+            f'and AI governance framework citations.</div>'
             f'{"<div style=margin-top:8px><span style=background:#f0fdf4;color:#16a34a;padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0>✓ " + str(len(gov["recommendations"])) + " recommendations generated</span></div>" if gov_done else ""}'
             f'</div>',
             unsafe_allow_html=True)
@@ -1185,7 +1682,6 @@ elif page == "insights":
         if btn_gov:
             with st.spinner("Generating governance recommendations…"):
                 metrics_summary = build_metrics_summary(edf)
-                # use existing root causes if available, else generate fresh
                 existing_rc = gov.get("root_causes", []) if gov else []
                 if not existing_rc:
                     with st.spinner("No root causes found — generating first…"):
@@ -1193,45 +1689,33 @@ elif page == "insights":
                         existing_rc = rc_raw.get("root_causes", [])
                 else:
                     rc_raw = {"root_causes": existing_rc}
-
-                recs_raw = run_async(generate_governance_recs(
-                    prompts, rc_raw, metrics_summary))
-
+                recs_raw = run_async(generate_governance_recs(prompts, rc_raw, metrics_summary))
             recs = recs_raw.get("recommendations", [])
             for rec in recs:
-                rec["priority_color"] = PRIORITY_COLORS.get(
-                    rec.get("priority", "Medium"), "#64748b")
-
+                rec["priority_color"] = PRIORITY_COLORS.get(rec.get("priority", "Medium"), "#64748b")
             existing_at = gov.get("generated_at", "") if gov else ""
             st.session_state.governance_report = {
                 "root_causes":      existing_rc,
                 "recommendations":  recs,
                 "generated_at":     existing_at,
-                "gov_generated_at": __import__("datetime").datetime.now()
-                                    .strftime("%Y-%m-%d %H:%M:%S"),
+                "gov_generated_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             }
             st.success(f"✅ {len(recs)} recommendations generated.")
             st.rerun()
 
-    # ── Results ───────────────────────────────────────────────────────────────
     if gov and (gov.get("root_causes") or gov.get("recommendations")):
         st.divider()
 
-        # ── ROOT CAUSES DISPLAY ───────────────────────────────────────────────
         if gov.get("root_causes"):
             section_label(f"ROOT CAUSE ANALYSIS  ·  {len(gov['root_causes'])} findings")
-
             for i, rc in enumerate(gov["root_causes"], 1):
                 metric  = rc.get("dominant_metric", "")
                 m_idx   = METRIC_KEYS.index(metric) if metric in METRIC_KEYS else 0
                 m_color = M_COLORS[m_idx]
                 ref     = rc.get("framework_reference", {})
-
                 st.markdown(
-                    f'<div style="background:white;border:1px solid #e2e8f0;'
-                    f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
-                    f'border-left:4px solid {m_color}">'
-
+                    f'<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;'
+                    f'padding:20px 24px;margin-bottom:14px;border-left:4px solid {m_color}">'
                     f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
                     f'<div style="display:flex;align-items:center;gap:10px">'
                     f'<span style="background:#f1f5f9;color:#475569;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px">#{i}</span>'
@@ -1239,18 +1723,14 @@ elif page == "insights":
                     f'</div>'
                     f'<span style="background:{m_color}20;color:{m_color};padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid {m_color}40">{metric}</span>'
                     f'</div>'
-
                     f'<div style="background:#f8fafc;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:12px;color:#475569">'
                     f'<span style="font-weight:700;color:#0f172a">Evidence: </span>{rc.get("score_evidence","—")}</div>'
-
                     f'<div style="margin-bottom:10px">'
                     f'<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Root Cause</div>'
                     f'<div style="font-size:13px;color:#1e293b;line-height:1.7">{rc.get("root_cause_explanation","—")}</div></div>'
-
                     f'<div style="background:#fef2f2;border-radius:8px;padding:10px 14px;margin-bottom:10px">'
                     f'<div style="font-size:10px;font-weight:700;color:#dc2626;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">User Impact</div>'
                     f'<div style="font-size:12px;color:#7f1d1d;line-height:1.6">{rc.get("user_impact","—")}</div></div>'
-
                     f'<div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9">'
                     f'<span style="font-size:16px">📋</span>'
                     f'<div><div style="font-size:11px;font-weight:700;color:#2563eb">{ref.get("name","—")}</div>'
@@ -1259,33 +1739,22 @@ elif page == "insights":
                     f'</div></div></div>',
                     unsafe_allow_html=True)
 
-            # Download root causes
             rc_rows = []
             for rc in gov["root_causes"]:
                 ref = rc.get("framework_reference", {})
-                rc_rows.append({
-                    "Category":           rc.get("category", ""),
-                    "Dominant Metric":    rc.get("dominant_metric", ""),
-                    "Score Evidence":     rc.get("score_evidence", ""),
-                    "Root Cause":         rc.get("root_cause_explanation", ""),
-                    "User Impact":        rc.get("user_impact", ""),
-                    "Framework":          ref.get("name", ""),
-                    "Framework Desc":     ref.get("description", ""),
-                    "Framework URL":      ref.get("url", ""),
-                })
-            _, dl1 = st.columns([3, 1])
+                rc_rows.append({"Category": rc.get("category",""), "Dominant Metric": rc.get("dominant_metric",""),
+                                 "Score Evidence": rc.get("score_evidence",""), "Root Cause": rc.get("root_cause_explanation",""),
+                                 "User Impact": rc.get("user_impact",""), "Framework": ref.get("name",""),
+                                 "Framework Desc": ref.get("description",""), "Framework URL": ref.get("url","")})
+            _, dl1 = st.columns([3,1])
             with dl1:
-                green_download("⬇ Download Root Causes",
-                               to_excel_bytes(pd.DataFrame(rc_rows)),
+                green_download("⬇ Download Root Causes", to_excel_bytes(pd.DataFrame(rc_rows)),
                                "root_cause_analysis.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="dl_rc")
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_rc")
 
-        # ── RECOMMENDATIONS DISPLAY ───────────────────────────────────────────
         if gov.get("recommendations"):
             st.markdown("<br>", unsafe_allow_html=True)
             section_label(f"GOVERNANCE RECOMMENDATIONS  ·  {len(gov['recommendations'])} actions")
-
             for rec in gov["recommendations"]:
                 priority = rec.get("priority", "Medium")
                 p_color  = rec.get("priority_color", "#64748b")
@@ -1293,12 +1762,9 @@ elif page == "insights":
                 metric   = rec.get("metric", "")
                 m_idx    = METRIC_KEYS.index(metric) if metric in METRIC_KEYS else 0
                 m_color  = M_COLORS[m_idx]
-
                 st.markdown(
-                    f'<div style="background:white;border:1px solid #e2e8f0;'
-                    f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
-                    f'border-left:4px solid {p_color}">'
-
+                    f'<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;'
+                    f'padding:20px 24px;margin-bottom:14px;border-left:4px solid {p_color}">'
                     f'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
                     f'<div style="display:flex;align-items:center;gap:8px">'
                     f'<span style="background:{p_color};color:white;padding:3px 12px;border-radius:20px;font-size:10px;font-weight:800">{priority}</span>'
@@ -1306,15 +1772,12 @@ elif page == "insights":
                     f'</div>'
                     f'<span style="background:{m_color}20;color:{m_color};padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid {m_color}40">{metric}</span>'
                     f'</div>'
-
                     f'<div style="margin-bottom:10px">'
                     f'<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Action</div>'
                     f'<div style="font-size:13px;color:#1e293b;line-height:1.7">{rec.get("recommendation","—")}</div></div>'
-
                     f'<div style="background:#f0fdf4;border-radius:8px;padding:10px 14px;margin-bottom:10px">'
                     f'<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">Expected Impact</div>'
                     f'<div style="font-size:12px;color:#14532d;line-height:1.6">{rec.get("expected_impact","—")}</div></div>'
-
                     f'<div style="display:flex;align-items:center;gap:8px;padding-top:8px;border-top:1px solid #f1f5f9">'
                     f'<span style="font-size:16px">📋</span>'
                     f'<div><div style="font-size:11px;font-weight:700;color:#2563eb">{ref.get("name","—")}</div>'
@@ -1323,24 +1786,15 @@ elif page == "insights":
                     f'</div></div></div>',
                     unsafe_allow_html=True)
 
-            # Download recommendations
             rec_rows = []
             for rec in gov["recommendations"]:
                 ref = rec.get("framework_reference", {})
-                rec_rows.append({
-                    "Priority":           rec.get("priority", ""),
-                    "Category":           rec.get("category", ""),
-                    "Metric":             rec.get("metric", ""),
-                    "Recommendation":     rec.get("recommendation", ""),
-                    "Expected Impact":    rec.get("expected_impact", ""),
-                    "Framework":          ref.get("name", ""),
-                    "Framework Desc":     ref.get("description", ""),
-                    "Framework URL":      ref.get("url", ""),
-                })
-            _, dl2 = st.columns([3, 1])
+                rec_rows.append({"Priority": rec.get("priority",""), "Category": rec.get("category",""),
+                                  "Metric": rec.get("metric",""), "Recommendation": rec.get("recommendation",""),
+                                  "Expected Impact": rec.get("expected_impact",""), "Framework": ref.get("name",""),
+                                  "Framework Desc": ref.get("description",""), "Framework URL": ref.get("url","")})
+            _, dl2 = st.columns([3,1])
             with dl2:
-                green_download("⬇ Download Recommendations",
-                               to_excel_bytes(pd.DataFrame(rec_rows)),
+                green_download("⬇ Download Recommendations", to_excel_bytes(pd.DataFrame(rec_rows)),
                                "governance_recommendations.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="dl_gov")
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gov")
