@@ -1,0 +1,440 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: AUGMENTATION
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "augment":
+    page_header("🔀 Augmentation",
+                "Select questions and bias categories, then generate augmentations and question variations.")
+
+    if st.session_state.input_df is None:
+        st.warning("⬅ Complete the Upload Input step first."); st.stop()
+
+    df       = st.session_state.input_df
+    ont_map  = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
+    questions = df["original_question"].tolist() if "original_question" in df.columns else []
+
+    cat_codes: dict = {}
+    for code, meta in ont_map.items():
+        cat_codes.setdefault(meta["category"], []).append(code)
+
+    # ── SELECTION SECTION ─────────────────────────────────────────────────────
+    st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;margin-bottom:16px">', unsafe_allow_html=True)
+    st.markdown("#### Select Questions & Bias Categories")
+    st.caption("Select categories to include all their subtypes, or pick subtypes individually.")
+
+    col_q, col_o = st.columns(2, gap="large")
+
+    # ── QUESTIONS PANEL ───────────────────────────────────────────────────────
+    with col_q:
+        st.markdown(
+            '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
+            'letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">'
+            '📄 Input Questions</div>', unsafe_allow_html=True)
+
+        q_search   = st.text_input("🔍 Search questions", "", key="q_search")
+        filtered_q = [(i, q) for i, q in enumerate(questions) if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
+        fq_idx     = [i for i, _ in filtered_q]
+        all_fq_sel = bool(fq_idx) and all(i in st.session_state.sel_questions for i in fq_idx)
+
+        def on_master_q():
+            if st.session_state["_master_q"]:
+                for i in fq_idx:
+                    if i not in st.session_state.sel_questions:
+                        st.session_state.sel_questions.append(i)
+            else:
+                st.session_state.sel_questions = [i for i in st.session_state.sel_questions if i not in fq_idx]
+
+        st.checkbox(
+            f"Select All Questions ({len(fq_idx)})",
+            value=all_fq_sel, key="_master_q", on_change=on_master_q)
+        st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
+
+        with st.container(height=300):
+            for i, q in filtered_q:
+                def on_q(idx=i):
+                    if st.session_state[f"_q_{idx}"]:
+                        if idx not in st.session_state.sel_questions:
+                            st.session_state.sel_questions.append(idx)
+                    else:
+                        st.session_state.sel_questions = [x for x in st.session_state.sel_questions if x != idx]
+                st.checkbox(
+                    f"Q{i+1} — {q[:85]}{'…' if len(q) > 85 else ''}",
+                    value=i in st.session_state.sel_questions,
+                    key=f"_q_{i}", on_change=on_q)
+
+    # ── CATEGORIES PANEL ──────────────────────────────────────────────────────
+    with col_o:
+        st.markdown(
+            '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
+            'letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">'
+            '🗂 Bias Categories</div>', unsafe_allow_html=True)
+
+        o_search = st.text_input("🔍 Search categories / subtypes", "", key="o_search")
+
+        filtered_cats: dict = {}
+        for cat, codes in cat_codes.items():
+            items = [
+                (c, ont_map[c]) for c in codes
+                if o_search == "" or o_search.lower() in cat.lower()
+                or o_search.lower() in ont_map[c]["subtype"].lower()
+                or o_search.lower() in c.lower()
+            ]
+            if items:
+                filtered_cats[cat] = items
+
+        filtered_codes = [c for items in filtered_cats.values() for c, _ in items]
+        all_fc_sel     = bool(filtered_codes) and all(c in st.session_state.sel_codes for c in filtered_codes)
+
+        def on_master_o():
+            if st.session_state["_master_o"]:
+                for c in filtered_codes:
+                    if c not in st.session_state.sel_codes:
+                        st.session_state.sel_codes.append(c)
+            else:
+                st.session_state.sel_codes = [c for c in st.session_state.sel_codes if c not in filtered_codes]
+
+        # "Select All" master checkbox
+        st.checkbox(
+            f"Select All ({len(filtered_codes)} subtypes across {len(filtered_cats)} categories)",
+            value=all_fc_sel, key="_master_o", on_change=on_master_o)
+
+        n_sel_codes = len([c for c in filtered_codes if c in st.session_state.sel_codes])
+        n_sel_cats  = sum(
+            1 for cat, items in filtered_cats.items()
+            if all(c in st.session_state.sel_codes for c, _ in items)
+        )
+        st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(filtered_codes)} subtypes selected")
+
+        sel_set = set(st.session_state.sel_codes)
+
+        with st.container(height=300):
+            if not ont_map:
+                st.info("No ontology loaded.")
+            else:
+                for cat in sorted(filtered_cats.keys()):
+                    items        = filtered_cats[cat]
+                    codes_in_cat = [c for c, _ in items]
+                    cat_all      = all(c in sel_set for c in codes_in_cat)
+                    cat_any      = any(c in sel_set for c in codes_in_cat)
+                    n_sel_c      = sum(1 for c in codes_in_cat if c in sel_set)
+
+                    # ── Category header row ───────────────────────────────────
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;gap:0px;'
+                        f'background:#f8fafc;border-radius:6px;padding:4px 6px;margin-top:6px;'
+                        f'border-left:3px solid {"#16a34a" if cat_all else "#f59e0b" if cat_any else "#e2e8f0"}">',
+                        unsafe_allow_html=True)
+
+                    cat_chk_col, cat_lbl_col = st.columns([0.08, 0.92])
+
+                    def on_cat(cc=codes_in_cat, cn=cat):
+                        if st.session_state[f"_cat_{cn}"]:
+                            for c in cc:
+                                if c not in st.session_state.sel_codes:
+                                    st.session_state.sel_codes.append(c)
+                        else:
+                            st.session_state.sel_codes = [c for c in st.session_state.sel_codes if c not in cc]
+
+                    with cat_chk_col:
+                        st.checkbox(
+                            "cat", value=cat_all,
+                            key=f"_cat_{cat}",
+                            label_visibility="collapsed",
+                            on_change=on_cat)
+                    with cat_lbl_col:
+                        st.markdown(
+                            f'<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0">'
+                            f'<span style="font-size:12px;font-weight:700;color:#1e293b">{cat}</span>'
+                            f'<span style="font-size:10px;background:#e0e7ff;color:#3730a3;padding:1px 7px;'
+                            f'border-radius:10px;font-weight:600">{n_sel_c}/{len(codes_in_cat)}</span>'
+                            f'</div>',
+                            unsafe_allow_html=True)
+
+                    st.markdown('</div>', unsafe_allow_html=True)
+
+                    # ── Sub-items (indented) ──────────────────────────────────
+                    for code, meta in items:
+                        is_chk = code in sel_set
+                        sub_chk_col, sub_lbl_col = st.columns([0.08, 0.92])
+
+                        def on_sub(c=code):
+                            if st.session_state[f"_sub_{c}"]:
+                                if c not in st.session_state.sel_codes:
+                                    st.session_state.sel_codes.append(c)
+                            else:
+                                st.session_state.sel_codes = [x for x in st.session_state.sel_codes if x != c]
+
+                        with sub_chk_col:
+                            st.markdown('<div style="padding-left:16px">', unsafe_allow_html=True)
+                            st.checkbox(
+                                code, value=is_chk,
+                                key=f"_sub_{code}",
+                                label_visibility="collapsed",
+                                on_change=on_sub)
+                            st.markdown('</div>', unsafe_allow_html=True)
+                        with sub_lbl_col:
+                            st.markdown(
+                                f'<div style="padding-left:12px;padding:3px 4px 3px 12px;'
+                                f'border-left:2px solid {"#bfdbfe" if is_chk else "#f1f5f9"};'
+                                f'margin-left:4px">'
+                                f'<span style="font-family:monospace;background:{"#dbeafe" if is_chk else "#f1f5f9"};'
+                                f'color:{"#1d4ed8" if is_chk else "#64748b"};padding:1px 5px;border-radius:3px;'
+                                f'font-size:10px;font-weight:600">{code}</span>'
+                                f'<span style="font-size:11px;color:{"#1e293b" if is_chk else "#94a3b8"};'
+                                f'font-weight:{"600" if is_chk else "400"};margin-left:6px">'
+                                f'{meta["subtype"]}</span>'
+                                f'</div>',
+                                unsafe_allow_html=True)
+
+                    st.markdown('<div style="height:4px"></div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── QUESTION VARIATIONS SECTION ──────────────────────────────────────────
+    st.markdown(
+        '<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;'
+        'padding:18px 24px;margin-bottom:16px;border-left:4px solid #6366f1">',
+        unsafe_allow_html=True)
+    st.markdown("#### 🔢 Question Variations")
+    st.caption("Specify how many variations to generate per question–subtype combination using the variation prompt template.")
+
+    var_col, var_info_col = st.columns([1, 3], gap="large")
+    with var_col:
+        num_var = st.number_input(
+            "Variations per question",
+            min_value=1, max_value=10, value=st.session_state.num_variations,
+            step=1, key="num_var_input",
+            help="Each selected question × each selected subtype will produce this many variations.")
+        st.session_state.num_variations = num_var
+
+    with var_info_col:
+        sel_q_count = len(st.session_state.sel_questions)
+        sel_c_count = len(st.session_state.sel_codes)
+        total_rows  = sel_q_count * sel_c_count * num_var
+        st.markdown(
+            f'<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;'
+            f'padding:12px 16px;margin-top:4px">'
+            f'<div style="font-size:12px;color:#5b21b6;font-weight:700;margin-bottom:6px">📊 Generation Estimate</div>'
+            f'<div style="display:flex;gap:20px;flex-wrap:wrap">'
+            f'<span style="font-size:12px;color:#4c1d95"><b>{sel_q_count}</b> questions × '
+            f'<b>{sel_c_count}</b> subtypes × <b>{num_var}</b> variation(s) = '
+            f'<b style="font-size:14px;color:#2563eb">{total_rows}</b> total rows</span>'
+            f'</div>'
+            f'<div style="font-size:11px;color:#7c3aed;margin-top:6px">'
+            f'Uses <code>question_variations</code> prompt template from prompts.yaml</div>'
+            f'</div>',
+            unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # ── RUN BAR ───────────────────────────────────────────────────────────────
+    sel_q    = st.session_state.sel_questions
+    sel_c    = st.session_state.sel_codes
+    rows_use = df.iloc[sel_q].reset_index(drop=True) if sel_q else df.iloc[[]]
+
+    c_info, c_run = st.columns([3, 1])
+    with c_info:
+        st.markdown(
+            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:8px;'
+            f'padding:10px 16px;display:flex;align-items:center;gap:16px">'
+            f'<span style="font-size:13px;color:#334155">Selected:</span>'
+            f'<span style="background:#dbeafe;color:#1d4ed8;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">{len(rows_use)} Questions</span>'
+            f'<span style="background:#ede9fe;color:#6d28d9;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">{len(sel_c)} Subtypes</span>'
+            f'<span style="background:#f0fdf4;color:#15803d;padding:3px 12px;border-radius:20px;font-size:12px;font-weight:700">{len(rows_use)*len(sel_c)*num_var} Rows to Generate</span>'
+            f'</div>', unsafe_allow_html=True)
+    with c_run:
+        run_aug = st.button(
+            "▶ Run Augmentation",
+            type="primary",
+            disabled=(len(rows_use) == 0 or len(sel_c) == 0),
+            use_container_width=True)
+
+    if run_aug:
+        st.session_state.gen_df  = None
+        st.session_state.eval_df = None
+        st.session_state.aug_highlight_page = 0
+        prompts  = st.session_state.prompts or {}
+        total    = len(rows_use) * len(sel_c) * num_var
+        progress = st.progress(0, text="Initializing…")
+        aug_rows = []
+
+        async def augment_all():
+            tasks = []
+            meta_list = []
+            for _, r in rows_use.iterrows():
+                for code in sel_c:
+                    ont = ont_map[code]
+                    for v_idx in range(num_var):
+                        # Use question_variations prompt if num_var > 1, else standard augmentation
+                        if num_var > 1:
+                            p = (prompts.get("question_variations", prompts.get("augmentation", ""))
+                                 .replace("{{code}}", code)
+                                 .replace("{{subtype}}", ont["subtype"])
+                                 .replace("{{category}}", ont["category"])
+                                 .replace("{{question}}", str(r["original_question"]))
+                                 .replace("{{variation_number}}", str(v_idx + 1))
+                                 .replace("{{total_variations}}", str(num_var)))
+                        else:
+                            p = (prompts.get("augmentation", "")
+                                 .replace("{{code}}", code)
+                                 .replace("{{subtype}}", ont["subtype"])
+                                 .replace("{{category}}", ont["category"])
+                                 .replace("{{question}}", str(r["original_question"])))
+                        tasks.append(call_llm(p))
+                        meta_list.append((r, code, ont, v_idx + 1))
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            return results, meta_list
+
+        results, meta_list = run_async(augment_all())
+        for idx, (res, (row, code, ont, v_num)) in enumerate(zip(results, meta_list)):
+            progress.progress((idx + 1) / total, text=f"Augmenting {idx+1}/{total}…")
+            if isinstance(res, Exception) or not res:
+                continue
+            aug_rows.append({
+                "original_question":   str(row["original_question"]),
+                "expected_output":     str(row.get("expected_output", "")),
+                "A_Code":              code,
+                "Category":            ont["category"],
+                "Subtype":             ont["subtype"],
+                "Bias Type":           ont["bias_pattern"],
+                "Variation":           v_num,
+                "Augmented Roleplay":  res.get("roleplay_question", ""),
+                "Augmented Storyline": res.get("storyline_question", ""),
+            })
+
+        progress.empty()
+        if aug_rows:
+            aug_df = pd.DataFrame(aug_rows)
+            aug_df.to_excel(OUTPUT_DIR / "step2_augmentation.xlsx", index=False)
+            st.session_state.aug_df = aug_df
+            st.success(f"✅ {len(aug_df)} rows generated.")
+            st.rerun()
+        else:
+            st.error("No results returned. Check Azure credentials and prompts.")
+
+    # ── AUGMENTATION RESULTS ──────────────────────────────────────────────────
+    if st.session_state.aug_df is not None:
+        aug_df = st.session_state.aug_df
+        st.divider()
+
+        st.markdown(
+            f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+            f'padding:8px 16px;margin-bottom:12px;">'
+            f'<span style="font-size:11px;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:.08em;color:#2563eb">'
+            f'Augmentation Results — {len(aug_df)} Rows</span></div>',
+            unsafe_allow_html=True)
+
+        tb_mid, tb_right = st.columns([2, 1])
+        with tb_mid:
+            view_mode = st.segmented_control(
+                "View", options=["RAW", "HIGHLIGHTED"],
+                default="RAW", key="aug_view", label_visibility="collapsed")
+            st.session_state.aug_view_mode = (view_mode or "RAW").lower()
+        with tb_right:
+            green_download(
+                "⬇ Download", to_excel_bytes(aug_df), "step2_augmentation.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_aug")
+
+        if st.session_state.aug_view_mode == "raw":
+            dc = [c for c in ["A_Code","Category","Subtype","Variation","original_question",
+                               "Augmented Roleplay","Augmented Storyline"] if c in aug_df.columns]
+            st.dataframe(aug_df[dc], use_container_width=True, height=fit_height(aug_df))
+
+        else:
+            # ── HIGHLIGHTED PAGINATED VIEW ────────────────────────────────────
+            total_pages = len(aug_df)
+            cur_page    = st.session_state.aug_highlight_page
+
+            # Clamp page in case df shrank
+            if cur_page >= total_pages:
+                cur_page = max(0, total_pages - 1)
+                st.session_state.aug_highlight_page = cur_page
+
+            if total_pages > 0:
+                row = aug_df.iloc[cur_page]
+
+                # Page info badge
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;justify-content:space-between;'
+                    f'background:white;border:1px solid #e2e8f0;border-radius:8px;'
+                    f'padding:8px 16px;margin-bottom:12px">'
+                    f'<div style="display:flex;align-items:center;gap:10px">'
+                    f'<span style="font-size:12px;font-weight:700;color:#0f172a">'
+                    f'Row {cur_page + 1} of {total_pages}</span>'
+                    f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;'
+                    f'border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span>'
+                    f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;'
+                    f'border-radius:20px;font-size:11px;font-weight:600">{row.get("Category","—")}</span>'
+                    f'<span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span>'
+                    f'{"<span style=background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600>Var " + str(int(row.get("Variation", 1))) + "</span>" if "Variation" in row.index else ""}'
+                    f'</div></div>',
+                    unsafe_allow_html=True)
+
+                # Content: original + roleplay
+                st.markdown(
+                    '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+                    'padding:16px 20px;margin-bottom:12px">',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;'
+                    'letter-spacing:.06em;margin-bottom:10px">🔀 Roleplay Augmentation</div>',
+                    unsafe_allow_html=True)
+                lc, rc = st.columns(2)
+                with lc:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:4px">Original Question</div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{row.get("original_question", "—")}</div>',
+                        unsafe_allow_html=True)
+                with rc:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">'
+                        'Augmented Roleplay <span style="font-weight:400;color:#94a3b8">(yellow = changes)</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{highlight_diff(row.get("original_question",""), row.get("Augmented Roleplay",""))}</div>',
+                        unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # Storyline
+                st.markdown(
+                    '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
+                    'padding:16px 20px;margin-bottom:16px">',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;'
+                    'letter-spacing:.06em;margin-bottom:10px">📖 Storyline Augmentation</div>',
+                    unsafe_allow_html=True)
+                lc2, rc2 = st.columns(2)
+                with lc2:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:4px">Original Question</div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{row.get("original_question", "—")}</div>',
+                        unsafe_allow_html=True)
+                with rc2:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">'
+                        'Augmented Storyline <span style="font-weight:400;color:#94a3b8">(yellow = changes)</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+                        f'padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">'
+                        f'{highlight_diff(row.get("original_question",""), row.get("Augmented Storyline",""))}</div>',
+                        unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                # Pagination bar
+                new_page = render_pagination(cur_page, total_pages, "aug_hl")
+                if new_page != cur_page:
+                    st.session_state.aug_highlight_page = new_page
+                    st.rerun()
