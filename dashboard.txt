@@ -65,9 +65,12 @@ div[data-testid="stExpander"] { background:white!important;border:1px solid #e2e
 .status-pass { background:#f0fdf4;color:#16a34a;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #bbf7d0;display:inline-block; }
 .status-fail { background:#fef2f2;color:#dc2626;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #fecaca;display:inline-block; }
 .highlight-word { background:#fef08a;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:700; }
-/* compact checkbox rows */
-div[data-testid="stCheckbox"] { margin-bottom:0px !important; padding-bottom:0px !important; }
-div[data-testid="stCheckbox"] label { padding-top:2px !important; padding-bottom:2px !important; }
+/* compact checkbox rows — kill ALL default spacing */
+div[data-testid="stCheckbox"] { margin:0px !important; padding:0px !important; min-height:0 !important; }
+div[data-testid="stCheckbox"] label { padding-top:1px !important; padding-bottom:1px !important; line-height:1.3 !important; }
+div[data-testid="stCheckbox"] > label > div { gap:6px !important; }
+/* kill gap between stVerticalBlock children inside containers */
+div[data-testid="stVerticalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] { gap:0 !important; padding:0 !important; margin:0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -460,8 +463,16 @@ elif page == "augment":
         cat_codes.setdefault(meta["category"], []).append(code)
 
     # ── Shorthand refs to mutable state ──────────────────────────────────────
-    sel_q   = st.session_state.sel_q_indices   # set of int
-    sel_c   = st.session_state.sel_codes        # set of str
+    sel_q = st.session_state.sel_q_indices   # set of int
+    sel_c = st.session_state.sel_codes       # set of str
+
+    # Helper: force-sync a checkbox widget key so value= is always respected.
+    # Streamlit ignores value= if the key already exists in st.session_state,
+    # so we delete the key before rendering to make it read value= fresh.
+    def sync_checkbox(key, desired_value, label, **kwargs):
+        if key in st.session_state and st.session_state[key] != desired_value:
+            del st.session_state[key]
+        return st.checkbox(label, value=desired_value, key=key, **kwargs)
 
     # ─────────────────────────────────────────────────────────────────────────
     st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;margin-bottom:16px">', unsafe_allow_html=True)
@@ -471,23 +482,23 @@ elif page == "augment":
     col_q, col_o = st.columns(2, gap="large")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # QUESTIONS PANEL  — all logic via st.session_state, no on_change callbacks
+    # QUESTIONS PANEL
     # ══════════════════════════════════════════════════════════════════════════
     with col_q:
         st.markdown('<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #eff6ff">📄 Input Questions</div>', unsafe_allow_html=True)
 
         q_search   = st.text_input("🔍 Search questions", "", key="q_search")
-        filtered_q = [(i,q) for i,q in enumerate(questions) if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
-        fq_idx     = [i for i,_ in filtered_q]
+        filtered_q = [(i, q) for i, q in enumerate(questions) if q_search.lower() in q.lower()] if q_search else list(enumerate(questions))
+        fq_idx     = [i for i, _ in filtered_q]
 
-        # --- Master "Select All Questions" checkbox ---
         all_fq_sel = bool(fq_idx) and all(i in sel_q for i in fq_idx)
-        new_master_q = st.checkbox(f"Select All Questions ({len(fq_idx)})", value=all_fq_sel, key="chk_master_q")
+        new_master_q = sync_checkbox("chk_master_q", all_fq_sel, f"Select All Questions ({len(fq_idx)})")
         if new_master_q != all_fq_sel:
-            if new_master_q:
-                sel_q.update(fq_idx)
-            else:
-                sel_q.difference_update(fq_idx)
+            if new_master_q: sel_q.update(fq_idx)
+            else:            sel_q.difference_update(fq_idx)
+            # clear all individual question keys so they re-sync
+            for i in fq_idx:
+                st.session_state.pop(f"chk_q_{i}", None)
             st.rerun()
 
         st.caption(f"{len(sel_q)} / {len(questions)} selected")
@@ -495,17 +506,16 @@ elif page == "augment":
         with st.container(height=280):
             for i, q in filtered_q:
                 cur_val = i in sel_q
-                new_val = st.checkbox(
-                    f"Q{i+1} — {q[:80]}{'…' if len(q)>80 else ''}",
-                    value=cur_val,
-                    key=f"chk_q_{i}")
+                new_val = sync_checkbox(f"chk_q_{i}", cur_val,
+                                        f"Q{i+1} — {q[:80]}{'…' if len(q)>80 else ''}")
                 if new_val != cur_val:
                     if new_val: sel_q.add(i)
                     else:       sel_q.discard(i)
+                    st.session_state.pop("chk_master_q", None)
                     st.rerun()
 
     # ══════════════════════════════════════════════════════════════════════════
-    # CATEGORIES PANEL  — hierarchical with compact spacing
+    # CATEGORIES PANEL
     # ══════════════════════════════════════════════════════════════════════════
     with col_o:
         st.markdown('<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #eff6ff">🗂 Bias Categories</div>', unsafe_allow_html=True)
@@ -515,25 +525,29 @@ elif page == "augment":
         filtered_cats: dict[str, list] = {}
         for cat, codes in cat_codes.items():
             items = [(c, ont_map[c]) for c in codes
-                     if o_search=="" or o_search.lower() in cat.lower()
+                     if o_search == "" or o_search.lower() in cat.lower()
                      or o_search.lower() in ont_map[c]["subtype"].lower()
                      or o_search.lower() in c.lower()]
             if items: filtered_cats[cat] = items
 
-        all_filtered_codes = [c for items in filtered_cats.values() for c,_ in items]
+        all_filtered_codes = [c for items in filtered_cats.values() for c, _ in items]
 
-        # --- Master "Select All Categories" checkbox ---
         all_oc_sel = bool(all_filtered_codes) and all(c in sel_c for c in all_filtered_codes)
-        new_master_o = st.checkbox(
-            f"Select All ({len(all_filtered_codes)} subtypes across {len(filtered_cats)} categories)",
-            value=all_oc_sel, key="chk_master_o")
+        new_master_o = sync_checkbox(
+            "chk_master_o", all_oc_sel,
+            f"Select All ({len(all_filtered_codes)} subtypes across {len(filtered_cats)} categories)")
         if new_master_o != all_oc_sel:
             if new_master_o: sel_c.update(all_filtered_codes)
             else:            sel_c.difference_update(all_filtered_codes)
+            # clear all cat + sub keys so they re-sync
+            for cat2, items2 in filtered_cats.items():
+                st.session_state.pop(f"chk_cat_{cat2}", None)
+                for code2, _ in items2:
+                    st.session_state.pop(f"chk_sub_{code2}", None)
             st.rerun()
 
         n_sel_codes = sum(1 for c in all_filtered_codes if c in sel_c)
-        n_sel_cats  = sum(1 for cat, items in filtered_cats.items() if all(c in sel_c for c,_ in items))
+        n_sel_cats  = sum(1 for cat, items in filtered_cats.items() if all(c in sel_c for c, _ in items))
         st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(all_filtered_codes)} subtypes selected")
 
         with st.container(height=280):
@@ -542,23 +556,21 @@ elif page == "augment":
             else:
                 for cat in sorted(filtered_cats.keys()):
                     items        = filtered_cats[cat]
-                    codes_in_cat = [c for c,_ in items]
+                    codes_in_cat = [c for c, _ in items]
                     cat_all_sel  = all(c in sel_c for c in codes_in_cat)
                     cat_any_sel  = any(c in sel_c for c in codes_in_cat)
                     n_sel_c      = sum(1 for c in codes_in_cat if c in sel_c)
-
-                    # left-border colour
                     bdr = "#16a34a" if cat_all_sel else "#f59e0b" if cat_any_sel else "#e2e8f0"
 
                     # ── Category header row ───────────────────────────────────
                     cat_col_chk, cat_col_lbl = st.columns([0.07, 0.93])
                     with cat_col_chk:
-                        new_cat = st.checkbox("", value=cat_all_sel, key=f"chk_cat_{cat}")
+                        new_cat = sync_checkbox(f"chk_cat_{cat}", cat_all_sel, "")
                     with cat_col_lbl:
                         st.markdown(
                             f'<div style="display:flex;align-items:center;justify-content:space-between;'
                             f'background:#f8fafc;border-left:3px solid {bdr};border-radius:0 4px 4px 0;'
-                            f'padding:3px 8px;margin-top:2px">'
+                            f'padding:3px 8px;">'
                             f'<span style="font-size:12px;font-weight:700;color:#1e293b">{cat}</span>'
                             f'<span style="font-size:10px;background:#e0e7ff;color:#3730a3;padding:1px 7px;'
                             f'border-radius:10px;font-weight:600">{n_sel_c}/{len(codes_in_cat)}</span>'
@@ -567,25 +579,25 @@ elif page == "augment":
                     if new_cat != cat_all_sel:
                         if new_cat: sel_c.update(codes_in_cat)
                         else:       sel_c.difference_update(codes_in_cat)
+                        # clear sub keys + master so they re-sync
+                        for code2 in codes_in_cat:
+                            st.session_state.pop(f"chk_sub_{code2}", None)
+                        st.session_state.pop("chk_master_o", None)
                         st.rerun()
 
-                    # ── Sub-items ─────────────────────────────────────────────
+                    # ── Sub-items (no extra wrappers, just columns) ───────────
                     for code, meta in items:
                         is_chk = code in sel_c
-                        sub_col_chk, sub_col_lbl = st.columns([0.07, 0.93])
-                        with sub_col_chk:
-                            # spacer to indent sub-items
-                            st.markdown('<div style="padding-left:14px">', unsafe_allow_html=True)
-                            new_sub = st.checkbox("", value=is_chk, key=f"chk_sub_{code}")
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        with sub_col_lbl:
+                        sub_chk_col, sub_lbl_col = st.columns([0.07, 0.93])
+                        with sub_chk_col:
+                            new_sub = sync_checkbox(f"chk_sub_{code}", is_chk, "")
+                        with sub_lbl_col:
                             st.markdown(
                                 f'<div style="display:flex;align-items:center;gap:6px;'
-                                f'padding:2px 6px 2px 18px;'
-                                f'border-left:2px solid {"#bfdbfe" if is_chk else "#f1f5f9"};'
-                                f'margin-left:6px">'
+                                f'padding:1px 4px 1px 14px;'
+                                f'border-left:2px solid {"#bfdbfe" if is_chk else "#f1f5f9"};margin-left:4px">'
                                 f'<span style="font-family:monospace;background:{"#dbeafe" if is_chk else "#f1f5f9"};'
-                                f'color:{"#1d4ed8" if is_chk else "#64748b"};padding:1px 5px;border-radius:3px;'
+                                f'color:{"#1d4ed8" if is_chk else "#64748b"};padding:0px 4px;border-radius:3px;'
                                 f'font-size:10px;font-weight:600">{code}</span>'
                                 f'<span style="font-size:11px;color:{"#1e293b" if is_chk else "#94a3b8"};'
                                 f'font-weight:{"600" if is_chk else "400"}">{meta["subtype"]}</span>'
@@ -594,7 +606,12 @@ elif page == "augment":
                         if new_sub != is_chk:
                             if new_sub: sel_c.add(code)
                             else:       sel_c.discard(code)
+                            st.session_state.pop(f"chk_cat_{cat}", None)
+                            st.session_state.pop("chk_master_o", None)
                             st.rerun()
+
+                    # small visual separator between categories only
+                    st.markdown('<div style="height:6px"></div>', unsafe_allow_html=True)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
