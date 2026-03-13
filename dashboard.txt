@@ -688,180 +688,219 @@ elif page == "augment":
     # ══════════════════════════════════════════════════════════════════════════
     # CATEGORIES PANEL (FIXED)
     # ══════════════════════════════════════════════════════════════════════════
-    with col_o:
-        st.markdown(
-            '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
-            'letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">'
-            '🗂 Bias Categories</div>', unsafe_allow_html=True)
-        o_search = st.text_input("🔍 Search categories / subtypes", "", key="o_search")
-        filtered_cats: dict = {}
-        for cat, codes in cat_codes.items():
-            items = [
-                (c, ont_map[c]) for c in codes
-                if o_search == "" or o_search.lower() in cat.lower()
-                or o_search.lower() in ont_map[c]["subtype"].lower()
-                or o_search.lower() in c.lower()
-            ]
-            if items:
-                filtered_cats[cat] = items
-        filtered_codes = [c for items in filtered_cats.values() for c, _ in items]
-        all_fc_sel     = bool(filtered_codes) and all(c in st.session_state.sel_codes for c in filtered_codes)
-        # ── FIX: "Select All Subtypes" master callback ───────────────────────
-        def on_master_o():
-            if st.session_state["_master_o"]:
-                for c in filtered_codes:
-                    if c not in st.session_state.sel_codes:
-                        st.session_state.sel_codes.append(c)
-                # FIX: Sync all subtype checkbox keys
-                for c in filtered_codes:
-                    st.session_state[f"_sub_{c}"] = True
-                # FIX: Sync all category checkbox keys
-                for cat in filtered_cats:
-                    st.session_state[f"_cat_{cat}"] = True
-            else:
-                st.session_state.sel_codes = [
-                    c for c in st.session_state.sel_codes if c not in filtered_codes
-                ]
-                # FIX: Sync all subtype checkbox keys
-                for c in filtered_codes:
-                    st.session_state[f"_sub_{c}"] = False
-                # FIX: Sync all category checkbox keys
-                for cat in filtered_cats:
-                    st.session_state[f"_cat_{cat}"] = False
-        st.checkbox(
-            f"Select All ({len(filtered_codes)} subtypes across {len(filtered_cats)} categories)",
-            value=all_fc_sel, key="_master_o", on_change=on_master_o)
-        n_sel_codes = len([c for c in filtered_codes if c in st.session_state.sel_codes])
-        n_sel_cats  = sum(
-            1 for cat, items in filtered_cats.items()
-            if all(c in st.session_state.sel_codes for c, _ in items)
-        )
-        st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(filtered_codes)} subtypes selected")
-        sel_set = set(st.session_state.sel_codes)
-        # ── CSS to kill Streamlit's default checkbox padding ─────
-        st.markdown("""
-<style>
-        /* Remove all vertical gaps inside the bias category scrollable container */
-        div[data-testid="stVerticalBlock"] .compact-bias-list .stCheckbox {
+            with col_o:
+                st.markdown(
+                    '<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;'
+                    'letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">'
+                    '🗂 Bias Categories</div>', unsafe_allow_html=True)
+                o_search = st.text_input("🔍 Search categories / subtypes", "", key="o_search")
+                filtered_cats: dict = {}
+                for cat, codes in cat_codes.items():
+                    items = [
+                        (c, ont_map[c]) for c in codes
+                        if o_search == "" or o_search.lower() in cat.lower()
+                           or o_search.lower() in ont_map[c]["subtype"].lower()
+                           or o_search.lower() in c.lower()
+                    ]
+                    if items:
+                        filtered_cats[cat] = items
+                filtered_codes = [c for items in filtered_cats.values() for c, _ in items]
+                all_fc_sel = bool(filtered_codes) and all(c in st.session_state.sel_codes for c in filtered_codes)
+
+
+                def on_master_o():
+                    if st.session_state["_master_o"]:
+                        for c in filtered_codes:
+                            if c not in st.session_state.sel_codes:
+                                st.session_state.sel_codes.append(c)
+                            st.session_state[f"_sub_{c}"] = True
+                        for cat_name in filtered_cats:
+                            st.session_state[f"_cat_{cat_name}"] = True
+                    else:
+                        st.session_state.sel_codes = [
+                            c for c in st.session_state.sel_codes if c not in filtered_codes
+                        ]
+                        for c in filtered_codes:
+                            st.session_state[f"_sub_{c}"] = False
+                        for cat_name in filtered_cats:
+                            st.session_state[f"_cat_{cat_name}"] = False
+
+
+                st.checkbox(
+                    f"Select All ({len(filtered_codes)} subtypes across {len(filtered_cats)} categories)",
+                    value=all_fc_sel, key="_master_o", on_change=on_master_o)
+                n_sel_codes = len([c for c in filtered_codes if c in st.session_state.sel_codes])
+                n_sel_cats = sum(
+                    1 for cat, items in filtered_cats.items()
+                    if all(c in st.session_state.sel_codes for c, _ in items)
+                )
+                st.caption(
+                    f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(filtered_codes)} subtypes selected")
+                sel_set = set(st.session_state.sel_codes)
+                # ── NUCLEAR CSS — targets Streamlit DOM directly, no custom class ────
+                # Uses the scrollable container (data-testid="stScrollArea" or the
+                # container with fixed height) as the anchor point.
+                st.markdown("""
+        <style>
+        /* ========================================
+           COMPACT BIAS CATEGORY TREE
+           Target: the fixed-height stVerticalBlock
+           that holds checkboxes + markdown inside
+           the right column of the selection panel.
+           ======================================== */
+        /* 1. Kill ALL vertical gaps inside ANY fixed-height scrollable container */
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stVerticalBlock"] {
+            gap: 0rem !important;
+        }
+        /* 2. Kill wrapper padding */
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stVerticalBlockBorderWrapper"] {
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        /* 3. Compact checkboxes */
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stCheckbox"] {
             margin: 0 !important;
             padding: 0 !important;
         }
-        div[data-testid="stVerticalBlock"] .compact-bias-list .stCheckbox > label {
-            padding-top: 0 !important;
-            padding-bottom: 0 !important;
-            min-height: 0 !important;
-            gap: 0.25rem !important;
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stCheckbox"] > label {
+            padding-top: 1px !important;
+            padding-bottom: 1px !important;
+            min-height: unset !important;
+            gap: 0.2rem !important;
         }
-        div[data-testid="stVerticalBlock"] .compact-bias-list .stCheckbox > label > span {
-            font-size: 0 !important;
+        /* 4. Kill horizontal block (column) gaps */
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stHorizontalBlock"] {
+            gap: 0rem !important;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            padding: 0 !important;
         }
-        /* Tighten column gaps inside compact list */
-        .compact-bias-list [data-testid="stHorizontalBlock"] {
+        /* 5. Kill column internal padding */
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stColumn"] {
+            padding: 0 !important;
+        }
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stColumn"] > div {
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stColumn"] > div > div {
             gap: 0 !important;
+            padding: 0 !important;
+            margin: 0 !important;
+        }
+        /* 6. Kill markdown spacing inside the tree */
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stMarkdownContainer"] {
             margin: 0 !important;
             padding: 0 !important;
         }
-        /* Kill default block spacing */
-        .compact-bias-list [data-testid="stVerticalBlockBorderWrapper"] {
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stMarkdownContainer"] p {
+            margin: 0 !important;
+            line-height: 1.3 !important;
+        }
+        /* 7. Element container spacing */
+        div[data-testid="stVerticalBlock"] > div[style*="height"] [data-testid="stElementContainer"] {
             margin: 0 !important;
             padding: 0 !important;
         }
-        .compact-bias-list [data-testid="stVerticalBlock"] {
-            gap: 0 !important;
-        }
-</style>
+        </style>
         """, unsafe_allow_html=True)
-        with st.container(height=300):
-            if not ont_map:
-                st.info("No ontology loaded.")
-            else:
-                st.markdown('<div class="compact-bias-list">', unsafe_allow_html=True)
-                for cat in sorted(filtered_cats.keys()):
-                    items        = filtered_cats[cat]
-                    codes_in_cat = [c for c, _ in items]
-                    cat_all      = all(c in sel_set for c in codes_in_cat)
-                    cat_any      = any(c in sel_set for c in codes_in_cat)
-                    n_sel_c      = sum(1 for c in codes_in_cat if c in sel_set)
-                    # ── FIX: Category-level checkbox callback ─────────────────
-                    def on_cat(cc=codes_in_cat, cn=cat):
-                        if st.session_state[f"_cat_{cn}"]:
-                            for c in cc:
-                                if c not in st.session_state.sel_codes:
-                                    st.session_state.sel_codes.append(c)
-                                st.session_state[f"_sub_{c}"] = True
-                        else:
-                            st.session_state.sel_codes = [
-                                c for c in st.session_state.sel_codes if c not in cc
-                            ]
-                            for c in cc:
-                                st.session_state[f"_sub_{c}"] = False
-                        new_all_sel = bool(filtered_codes) and all(
-                            c in st.session_state.sel_codes for c in filtered_codes
-                        )
-                        st.session_state["_master_o"] = new_all_sel
-                    # ── Category header: checkbox + bold label ────────────────
-                    st.markdown(
-                        f'<div style="background:#f0f4ff;padding:5px 8px;margin-top:4px;'
-                        f'border-left:3px solid {"#16a34a" if cat_all else "#f59e0b" if cat_any else "#cbd5e1"};'
-                        f'border-radius:4px;display:flex;align-items:center">',
-                        unsafe_allow_html=True)
-                    cat_c1, cat_c2 = st.columns([0.06, 0.94], gap="small")
-                    with cat_c1:
-                        st.checkbox(
-                            "cat", value=cat_all,
-                            key=f"_cat_{cat}",
-                            label_visibility="collapsed",
-                            on_change=on_cat)
-                    with cat_c2:
-                        st.markdown(
-                            f'<div style="display:flex;align-items:center;justify-content:space-between">'
-                            f'<span style="font-size:12px;font-weight:700;color:#1e293b">{cat}</span>'
-                            f'<span style="font-size:10px;background:#e0e7ff;color:#3730a3;padding:1px 7px;'
-                            f'border-radius:10px;font-weight:600">{n_sel_c}/{len(codes_in_cat)}</span>'
-                            f'</div>',
-                            unsafe_allow_html=True)
-                    st.markdown('</div>', unsafe_allow_html=True)
-                    # ── Subtypes: tightly packed under category ───────────────
-                    for code, meta in items:
-                        is_chk = code in sel_set
-                        def on_sub(c=code, cc=codes_in_cat, cn=cat):
-                            if st.session_state[f"_sub_{c}"]:
-                                if c not in st.session_state.sel_codes:
-                                    st.session_state.sel_codes.append(c)
-                            else:
-                                st.session_state.sel_codes = [
-                                    x for x in st.session_state.sel_codes if x != c
-                                ]
-                            cat_now_all = all(
-                                sc in st.session_state.sel_codes for sc in cc
-                            )
-                            st.session_state[f"_cat_{cn}"] = cat_now_all
-                            new_all_sel = bool(filtered_codes) and all(
-                                fc in st.session_state.sel_codes for fc in filtered_codes
-                            )
-                            st.session_state["_master_o"] = new_all_sel
-                        sub_c1, sub_c2 = st.columns([0.06, 0.94], gap="small")
-                        with sub_c1:
-                            st.markdown('<div style="padding-left:18px">', unsafe_allow_html=True)
-                            st.checkbox(
-                                code, value=is_chk,
-                                key=f"_sub_{code}",
-                                label_visibility="collapsed",
-                                on_change=on_sub)
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        with sub_c2:
-                            st.markdown(
-                                f'<div style="padding:2px 0 2px 14px;'
-                                f'border-left:2px solid {"#bfdbfe" if is_chk else "#f1f5f9"}">'
-                                f'<span style="font-family:monospace;background:{"#dbeafe" if is_chk else "#f1f5f9"};'
-                                f'color:{"#1d4ed8" if is_chk else "#64748b"};padding:1px 5px;border-radius:3px;'
-                                f'font-size:10px;font-weight:600">{code}</span>'
-                                f'<span style="font-size:11px;color:{"#1e293b" if is_chk else "#94a3b8"};'
-                                f'font-weight:{"600" if is_chk else "400"};margin-left:6px">'
-                                f'{meta["subtype"]}</span>'
-                                f'</div>',
-                                unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                with st.container(height=300):
+                    if not ont_map:
+                        st.info("No ontology loaded.")
+                    else:
+                        for cat in sorted(filtered_cats.keys()):
+                            items = filtered_cats[cat]
+                            codes_in_cat = [c for c, _ in items]
+                            cat_all = all(c in sel_set for c in codes_in_cat)
+                            cat_any = any(c in sel_set for c in codes_in_cat)
+                            n_sel_c = sum(1 for c in codes_in_cat if c in sel_set)
+
+
+                            def on_cat(cc=codes_in_cat, cn=cat):
+                                if st.session_state[f"_cat_{cn}"]:
+                                    for c in cc:
+                                        if c not in st.session_state.sel_codes:
+                                            st.session_state.sel_codes.append(c)
+                                        st.session_state[f"_sub_{c}"] = True
+                                else:
+                                    st.session_state.sel_codes = [
+                                        c for c in st.session_state.sel_codes if c not in cc
+                                    ]
+                                    for c in cc:
+                                        st.session_state[f"_sub_{c}"] = False
+                                new_all_sel = bool(filtered_codes) and all(
+                                    c in st.session_state.sel_codes for c in filtered_codes
+                                )
+                                st.session_state["_master_o"] = new_all_sel
+
+
+                            # ── Category row: [checkbox] [header label] ───────────────
+                            border_color = "#16a34a" if cat_all else "#f59e0b" if cat_any else "#cbd5e1"
+                            cc1, cc2 = st.columns([0.05, 0.95], gap="small")
+                            with cc1:
+                                st.checkbox(
+                                    f"sel_{cat}", value=cat_all,
+                                    key=f"_cat_{cat}",
+                                    label_visibility="collapsed",
+                                    on_change=on_cat)
+                            with cc2:
+                                st.markdown(
+                                    f'<div style="background:#f0f4ff;padding:4px 10px;'
+                                    f'border-left:3px solid {border_color};border-radius:4px;'
+                                    f'display:flex;align-items:center;justify-content:space-between">'
+                                    f'<span style="font-size:12px;font-weight:700;color:#1e293b">{cat}</span>'
+                                    f'<span style="font-size:10px;background:#e0e7ff;color:#3730a3;'
+                                    f'padding:1px 7px;border-radius:10px;font-weight:600">'
+                                    f'{n_sel_c}/{len(codes_in_cat)}</span></div>',
+                                    unsafe_allow_html=True)
+                            # ── Subtypes: indented under category, compact ────────────
+                            for code, meta in items:
+                                is_chk = code in sel_set
+
+
+                                def on_sub(c=code, cc=codes_in_cat, cn=cat):
+                                    if st.session_state[f"_sub_{c}"]:
+                                        if c not in st.session_state.sel_codes:
+                                            st.session_state.sel_codes.append(c)
+                                    else:
+                                        st.session_state.sel_codes = [
+                                            x for x in st.session_state.sel_codes if x != c
+                                        ]
+                                    st.session_state[f"_cat_{cn}"] = all(
+                                        sc in st.session_state.sel_codes for sc in cc
+                                    )
+                                    st.session_state["_master_o"] = bool(filtered_codes) and all(
+                                        fc in st.session_state.sel_codes for fc in filtered_codes
+                                    )
+
+
+                                sc1, sc2 = st.columns([0.05, 0.95], gap="small")
+                                with sc1:
+                                    st.markdown(
+                                        '<div style="padding-left:16px">',
+                                        unsafe_allow_html=True)
+                                    st.checkbox(
+                                        code, value=is_chk,
+                                        key=f"_sub_{code}",
+                                        label_visibility="collapsed",
+                                        on_change=on_sub)
+                                    st.markdown('</div>', unsafe_allow_html=True)
+                                with sc2:
+                                    chk_bg = "#dbeafe" if is_chk else "#f1f5f9"
+                                    chk_fg = "#1d4ed8" if is_chk else "#64748b"
+                                    txt_fg = "#1e293b" if is_chk else "#94a3b8"
+                                    txt_wt = "600" if is_chk else "400"
+                                    bdr = "#bfdbfe" if is_chk else "#f1f5f9"
+                                    st.markdown(
+                                        f'<div style="padding:1px 0 1px 10px;margin-left:8px;'
+                                        f'border-left:2px solid {bdr}">'
+                                        f'<span style="font-family:monospace;background:{chk_bg};'
+                                        f'color:{chk_fg};padding:1px 5px;border-radius:3px;'
+                                        f'font-size:10px;font-weight:600">{code}</span>'
+                                        f'<span style="font-size:11px;color:{txt_fg};'
+                                        f'font-weight:{txt_wt};margin-left:6px">'
+                                        f'{meta["subtype"]}</span></div>',
+                                        unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
     # ══════════════════════════════════════════════════════════════════════════
     # EVERYTHING BELOW IS UNCHANGED FROM YOUR ORIGINAL CODE
