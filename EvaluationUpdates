@@ -141,20 +141,15 @@ elif page == "evaluate":
     else:
         gdf = st.session_state.gen_df
 
-        # ── toolbar: badge | spacer | toggle | download (same line, same size) ─
-        tb1, tb2, tb3 = st.columns([3, 1, 1])
+        # ── toolbar: toggle (left) | spacer | download (right) ──────────────
+        tb1, tb2, tb3 = st.columns([1, 3, 1])
         with tb1:
-            st.markdown(
-                f'<div style="padding-top:6px">'
-                f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;'
-                f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>'
-                f'</div>',
-                unsafe_allow_html=True)
-        with tb2:
             ao_view = st.segmented_control(
                 "View", options=["RAW", "HIGHLIGHTED"],
                 default="RAW", key="gen_view_mode", label_visibility="collapsed")
             st.session_state["_gen_view"] = (ao_view or "RAW").upper()
+        with tb2:
+            pass
         with tb3:
             green_download(
                 "⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
@@ -347,15 +342,15 @@ elif page == "evaluate":
                    if metric_sf == "Fail"
                    else fdf[~fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)])
 
-        # ── toolbar: count | spacer | toggle | download (same line, same size) ─
-        tb1, tb2, tb3 = st.columns([3, 1, 1])
+        # ── toolbar: toggle (left) | spacer | download (right) ──────────────
+        tb1, tb2, tb3 = st.columns([1, 3, 1])
         with tb1:
-            st.caption(f"Showing {len(fdf)} of {len(edf)} records")
-        with tb2:
             ev_view = st.segmented_control(
                 "View", options=["RAW", "HIGHLIGHTED"],
                 default="RAW", key="eval_view_mode", label_visibility="collapsed")
             st.session_state["_eval_view"] = (ev_view or "RAW").upper()
+        with tb2:
+            pass
         with tb3:
             green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
