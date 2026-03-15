@@ -141,8 +141,8 @@ elif page == "evaluate":
     else:
         gdf = st.session_state.gen_df
 
-        # ── toolbar: badge | toggle | spacer | download ──────────────────────
-        tb1, tb2, tb3, tb4 = st.columns([1.6, 1.4, 3, 1])
+        # ── toolbar: badge | spacer | toggle | download ──────────────────────
+        tb1, tb2, tb3 = st.columns([3, 1.5, 1])
         with tb1:
             st.markdown(
                 f'<div style="padding-top:4px">'
@@ -156,8 +156,6 @@ elif page == "evaluate":
                 default="RAW", key="gen_view_mode", label_visibility="collapsed")
             st.session_state["_gen_view"] = (ao_view or "RAW").upper()
         with tb3:
-            pass  # spacer
-        with tb4:
             green_download(
                 "⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
@@ -349,8 +347,8 @@ elif page == "evaluate":
                    if metric_sf == "Fail"
                    else fdf[~fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)])
 
-        # ── toolbar: count | toggle | spacer | download ──────────────────────
-        tb1, tb2, tb3, tb4 = st.columns([1.6, 1.4, 3, 1])
+        # ── toolbar: count | spacer | toggle | download ──────────────────────
+        tb1, tb2, tb3 = st.columns([3, 1.5, 1])
         with tb1:
             st.caption(f"Showing {len(fdf)} of {len(edf)} records")
         with tb2:
@@ -359,8 +357,6 @@ elif page == "evaluate":
                 default="RAW", key="eval_view_mode", label_visibility="collapsed")
             st.session_state["_eval_view"] = (ev_view or "RAW").upper()
         with tb3:
-            pass  # spacer
-        with tb4:
             green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            key="dl_eval")
