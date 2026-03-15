@@ -141,23 +141,23 @@ elif page == "evaluate":
     else:
         gdf = st.session_state.gen_df
 
-        # ── toolbar: [badge + segmented control] | download ─────────────────
-        tb_left, tb_right = st.columns([3, 1])
-        with tb_left:
-            bl1, bl2 = st.columns([1.4, 2])
-            with bl1:
-                st.markdown(
-                    f'<div style="padding-top:4px">'
-                    f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;'
-                    f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>'
-                    f'</div>',
-                    unsafe_allow_html=True)
-            with bl2:
-                ao_view = st.segmented_control(
-                    "View", options=["RAW", "HIGHLIGHTED"],
-                    default="RAW", key="gen_view_mode", label_visibility="collapsed")
-                st.session_state["_gen_view"] = (ao_view or "RAW").upper()
-        with tb_right:
+        # ── toolbar: badge | toggle | spacer | download ──────────────────────
+        tb1, tb2, tb3, tb4 = st.columns([1.6, 1.4, 3, 1])
+        with tb1:
+            st.markdown(
+                f'<div style="padding-top:4px">'
+                f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;'
+                f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>'
+                f'</div>',
+                unsafe_allow_html=True)
+        with tb2:
+            ao_view = st.segmented_control(
+                "View", options=["RAW", "HIGHLIGHTED"],
+                default="RAW", key="gen_view_mode", label_visibility="collapsed")
+            st.session_state["_gen_view"] = (ao_view or "RAW").upper()
+        with tb3:
+            pass  # spacer
+        with tb4:
             green_download(
                 "⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
@@ -349,18 +349,18 @@ elif page == "evaluate":
                    if metric_sf == "Fail"
                    else fdf[~fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)])
 
-        # ── toolbar: [record count + segmented control] | download ──────────
-        tb_left, tb_right = st.columns([3, 1])
-        with tb_left:
-            bl1, bl2 = st.columns([1.4, 2])
-            with bl1:
-                st.caption(f"Showing {len(fdf)} of {len(edf)} records")
-            with bl2:
-                ev_view = st.segmented_control(
-                    "View", options=["RAW", "HIGHLIGHTED"],
-                    default="RAW", key="eval_view_mode", label_visibility="collapsed")
-                st.session_state["_eval_view"] = (ev_view or "RAW").upper()
-        with tb_right:
+        # ── toolbar: count | toggle | spacer | download ──────────────────────
+        tb1, tb2, tb3, tb4 = st.columns([1.6, 1.4, 3, 1])
+        with tb1:
+            st.caption(f"Showing {len(fdf)} of {len(edf)} records")
+        with tb2:
+            ev_view = st.segmented_control(
+                "View", options=["RAW", "HIGHLIGHTED"],
+                default="RAW", key="eval_view_mode", label_visibility="collapsed")
+            st.session_state["_eval_view"] = (ev_view or "RAW").upper()
+        with tb3:
+            pass  # spacer
+        with tb4:
             green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            key="dl_eval")
