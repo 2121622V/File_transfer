@@ -141,11 +141,11 @@ elif page == "evaluate":
     else:
         gdf = st.session_state.gen_df
 
-        # ── toolbar: badge | spacer | toggle | download ──────────────────────
-        tb1, tb2, tb3 = st.columns([3, 1.5, 1])
+        # ── toolbar: badge | spacer | toggle | download (same line, same size) ─
+        tb1, tb2, tb3 = st.columns([3, 1, 1])
         with tb1:
             st.markdown(
-                f'<div style="padding-top:4px">'
+                f'<div style="padding-top:6px">'
                 f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;'
                 f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>'
                 f'</div>',
@@ -347,8 +347,8 @@ elif page == "evaluate":
                    if metric_sf == "Fail"
                    else fdf[~fdf[METRIC_KEYS].ge(THRESHOLD).any(axis=1)])
 
-        # ── toolbar: count | spacer | toggle | download ──────────────────────
-        tb1, tb2, tb3 = st.columns([3, 1.5, 1])
+        # ── toolbar: count | spacer | toggle | download (same line, same size) ─
+        tb1, tb2, tb3 = st.columns([3, 1, 1])
         with tb1:
             st.caption(f"Showing {len(fdf)} of {len(edf)} records")
         with tb2:
