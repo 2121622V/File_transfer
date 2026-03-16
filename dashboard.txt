@@ -997,27 +997,25 @@ elif page == "augment":
         aug_df = st.session_state.aug_df
         st.divider()
 
-        # Toolbar: heading left, RAW/HIGHLIGHTED + Download right — all on one row
-        t_left, t_right = st.columns([2, 2])
-        with t_left:
+        # Row 1: Heading + Download
+        h_left, h_right = st.columns([3, 1])
+        with h_left:
             st.markdown(
                 f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
-                f'padding:9px 16px;height:100%;display:flex;align-items:center">'
+                f'padding:9px 16px;display:flex;align-items:center">'
                 f'<span style="font-size:11px;font-weight:700;text-transform:uppercase;'
                 f'letter-spacing:.08em;color:#2563eb">Augmentation Results — {len(aug_df)} Rows</span></div>',
                 unsafe_allow_html=True)
-        with t_right:
-            ra, rb = st.columns([3, 1])
-            with ra:
-                view_mode = st.segmented_control(
-                    "View", options=["RAW", "HIGHLIGHTED"],
-                    default="RAW", key="aug_view", label_visibility="collapsed")
-                st.session_state.aug_view_mode = (view_mode or "RAW").lower()
-            with rb:
-                green_download("⬇ Download", to_excel_bytes(aug_df),
-                               "step2_augmentation.xlsx",
-                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                               key="dl_aug")
+        with h_right:
+            green_download("⬇ Download", to_excel_bytes(aug_df),
+                           "step2_augmentation.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                           key="dl_aug")
+        # Row 2: RAW/HIGHLIGHTED below heading
+        view_mode = st.segmented_control(
+            "View", options=["RAW", "HIGHLIGHTED"],
+            default="RAW", key="aug_view", label_visibility="collapsed")
+        st.session_state.aug_view_mode = (view_mode or "RAW").lower()
 
         if st.session_state.aug_view_mode == "raw":
             dc = [c for c in ["A_Code", "Category", "Subtype", "Variation",
@@ -1192,20 +1190,20 @@ elif page == "evaluate":
     else:
         gdf = st.session_state.gen_df
         # Toolbar: status badge | RAW/HIGHLIGHTED | Download — all on ONE line
-        tb_col1, tb_col2, tb_col3 = st.columns([2, 2, 1])
+        # Row 1: status badge + Download
+        tb_col1, tb_col2 = st.columns([3, 1])
         with tb_col1:
             st.markdown(
-                f'<div style="padding-top:6px">'
                 f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;'
-                f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span></div>',
+                f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>',
                 unsafe_allow_html=True)
         with tb_col2:
-            vw = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"],
-                                      default="RAW", key="gen_view_mode", label_visibility="collapsed")
-        with tb_col3:
             green_download("⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            key="dl_gen")
+        # Row 2: RAW/HIGHLIGHTED directly below badge
+        vw = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"],
+                                  default="RAW", key="gen_view_mode", label_visibility="collapsed")
 
         if (vw or "RAW") == "RAW":
             show_cols = [c for c in ["A_Code", "Category", "Subtype", "Bias Type",
@@ -1343,17 +1341,17 @@ elif page == "evaluate":
         if jf   != "All" and jf in fdf.columns:
             fdf = fdf.sort_values(jf, key=lambda s: s.isin(_J_BAD.get(jf, [])).astype(int), ascending=False)
 
-        # Toolbar: record count | RAW/HIGHLIGHTED | Download — all on ONE line (right-aligned)
-        tb_a, tb_b, tb_c = st.columns([2, 2, 1])
+        # Row 1: record count + Download
+        tb_a, tb_c = st.columns([3, 1])
         with tb_a:
             st.caption(f"Showing {len(fdf)} of {len(edf)} records")
-        with tb_b:
-            ev_view = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"],
-                                           default="RAW", key="eval_vm", label_visibility="collapsed")
         with tb_c:
             green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                            key="dl_eval")
+        # Row 2: RAW/HIGHLIGHTED below record count
+        ev_view = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"],
+                                       default="RAW", key="eval_vm", label_visibility="collapsed")
 
         if (ev_view or "RAW") == "RAW":
             base_cols  = ["A_Code", "Category", "Subtype", "Bias Type", "Status"]
@@ -1503,6 +1501,32 @@ elif page == "analysis":
             yaxis=dict(title="%",gridcolor="#f1f5f9",range=[0,110])))
         st.plotly_chart(fig_jp, use_container_width=True)
 
+        # Gap percentage per judge shown as badges right after the stacked bar
+        st.markdown(
+            '<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'
+            'letter-spacing:.06em;margin-bottom:8px;margin-top:4px">Gap % per Judge (Highest − Lowest Category)</div>',
+            unsafe_allow_html=True)
+        gap_badge_cols = st.columns(5)
+        for idx, (dc, jname, jcolor) in enumerate(zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS)):
+            if dc not in edf.columns: continue
+            bv_g = _J_BAD.get(dc, [])
+            br_g = edf.groupby("Category").apply(lambda g: g[dc].isin(bv_g).sum()/max(1,len(g))*100)
+            gap_val = round(float(br_g.max() - br_g.min()), 1) if len(br_g) >= 2 else 0.0
+            gap_color = "#dc2626" if gap_val >= 30 else "#d97706" if gap_val >= 15 else "#16a34a"
+            gap_bg    = "#fee2e2" if gap_val >= 30 else "#fef9c3" if gap_val >= 15 else "#dcfce7"
+            with gap_badge_cols[idx]:
+                st.markdown(
+                    f'<div style="background:{gap_bg};border:1px solid {gap_color}40;border-radius:10px;'
+                    f'padding:12px;border-top:3px solid {jcolor};text-align:center;'
+                    f'box-shadow:0 1px 3px rgba(0,0,0,0.04)">'
+                    f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">{jname}</div>'
+                    f'<div style="font-size:22px;font-weight:800;color:{gap_color}">{gap_val:.1f}%</div>'
+                    f'<div style="font-size:10px;color:#64748b;margin-top:2px">Category Gap</div>'
+                    f'<div style="font-size:9px;color:{gap_color};font-weight:700;margin-top:4px">'
+                    f'{"🔴 High" if gap_val >= 30 else "🟡 Medium" if gap_val >= 15 else "🟢 Low"}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True)
+
         jpc = st.columns(5)
         for i, row in jp.iterrows():
             with jpc[i]:
@@ -1510,7 +1534,7 @@ elif page == "analysis":
                 st.markdown(
                     f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
                     f'padding:14px;border-top:3px solid {c};text-align:center;'
-                    f'box-shadow:0 1px 3px rgba(0,0,0,0.04)">'
+                    f'box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-top:8px">'
                     f'<div style="font-size:11px;font-weight:700;color:#0f172a;margin-bottom:8px">{row["Judge"]}</div>'
                     f'<div style="font-size:22px;font-weight:800;color:#ef4444">{row["Bad %"]:.0f}%</div>'
                     f'<div style="font-size:10px;color:#64748b;margin-top:2px">Bad Rate ({row["Bad N"]}/{n_total})</div>'
@@ -1612,19 +1636,31 @@ elif page == "analysis":
             f'{jname} — Overall Bad Rate: '
             f'<span style="color:#ef4444;font-weight:800">{overall_bad:.1f}%</span></div>',
             unsafe_allow_html=True)
+        # dynamic height so category labels never overlap
+        chart_h = max(300, len(cat_br) * 40 + 80)
         fig_j = go.Figure(go.Bar(
             x=cat_br["bad_pct"], y=cat_br["Category"], orientation="h",
             marker_color=["#ef4444" if v>=40 else "#f59e0b" if v>=20 else "#10b981"
                           for v in cat_br["bad_pct"]],
             text=cat_br["bad_pct"].apply(lambda v: f"{v:.1f}%"),
-            textposition="outside"))
+            textposition="outside",
+            textfont=dict(size=11)))
         fig_j.add_vline(x=overall_bad, line_dash="dash", line_color=jcolor, line_width=2,
-                        annotation_text=f"Avg {overall_bad:.1f}%", annotation_position="top right")
-        # Use plot_layout() — NO duplicate margin key possible
+                        annotation_text=f"Avg {overall_bad:.1f}%",
+                        annotation_position="top right",
+                        annotation_font_size=10)
         fig_j.update_layout(**plot_layout(
-            height=max(220, len(cat_br)*28+60),
-            margin=dict(l=10, r=120, t=20, b=10),
-            xaxis=dict(range=[0,110], gridcolor="#f1f5f9", title="Bad Rate (%)")))
+            height=chart_h,
+            margin=dict(l=10, r=130, t=20, b=40),
+            xaxis=dict(
+                range=[0, 115],
+                gridcolor="#f1f5f9",
+                title=dict(text="Bad Rate (%)", font=dict(size=11)),
+                tickfont=dict(size=10),
+                ticksuffix="%"),
+            yaxis=dict(
+                tickfont=dict(size=10),
+                automargin=True)))   # automargin prevents y-label clipping
         st.plotly_chart(fig_j, use_container_width=True)
 
     # ── JUDGE GAP TABLE ───────────────────────────────────────────────────────
