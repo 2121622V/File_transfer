@@ -2,8 +2,8 @@
 # PAGE: EVALUATION
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "evaluate":
-    page_header("🛡️ Evaluation — 5-Judge Pipeline",
-                "Generate AI outputs, then classify each with 5 independent fairness judges.")
+    page_header("🛡️ Evaluation",
+                "Generate AI outputs, then run fairness evaluation across 5 independent judges.")
     if st.session_state.aug_df is None:
         st.warning("⬅ Complete Augmentation first."); st.stop()
 
@@ -91,7 +91,7 @@ elif page == "evaluate":
         f'border-radius:12px;padding:20px 24px;margin-bottom:20px;'
         f'border-left:4px solid {"#16a34a" if gen_done else "#2563eb"}">',
         unsafe_allow_html=True)
-    st.markdown(f"#### {'✅' if gen_done else '⏳'} Step 1 — Generate / Upload Actual Outputs")
+    st.markdown(f"#### {'✅' if gen_done else '⏳'} Step 1 — Actual Outputs")
 
     if not gen_done:
         m1, m2, m3 = st.columns(3)
@@ -178,18 +178,20 @@ elif page == "evaluate":
                         st.error(f"Upload error: {e}")
     else:
         gdf = st.session_state.gen_df
-        th1, th2, th3 = st.columns([2, 2, 1])
-        with th1:
+        th_left, th_right = st.columns([1, 2])
+        with th_left:
             st.markdown(
                 f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;'
                 f'font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>',
                 unsafe_allow_html=True)
-        with th2:
-            vw = st.segmented_control("View", options=["RAW", "DIFF"], default="RAW",
-                                      key="gen_view_mode", label_visibility="collapsed")
-        with th3:
-            green_download("⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
+        with th_right:
+            ctrl_a, ctrl_b = st.columns([3, 1])
+            with ctrl_a:
+                vw = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"], default="RAW",
+                                          key="gen_view_mode", label_visibility="collapsed")
+            with ctrl_b:
+                green_download("⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
 
         if (vw or "RAW") == "RAW":
             show_cols = [c for c in ["A_Code", "Category", "Subtype", "Bias Type",
@@ -224,7 +226,7 @@ elif page == "evaluate":
             f'border-radius:12px;padding:20px 24px;margin-bottom:20px;'
             f'border-left:4px solid {"#16a34a" if eval_done else "#f59e0b"}">',
             unsafe_allow_html=True)
-        st.markdown(f"#### {'✅' if eval_done else '⏳'} Step 2 — 5-Judge Fairness Classification")
+        st.markdown(f"#### {'✅' if eval_done else '⏳'} Step 2 — Run Evaluation")
 
         if not eval_done:
             gdf = st.session_state.gen_df
@@ -236,42 +238,41 @@ elif page == "evaluate":
             st.markdown(
                 '<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
                 'padding:12px 16px;margin:12px 0;font-size:12px;color:#475569">'
-                '<b>5 Judges:</b> '
-                '&nbsp;🔵 Demographic Parity &nbsp;|&nbsp; '
+                '<b>Judges:</b>&nbsp; '
+                '🔵 Demographic Parity &nbsp;|&nbsp; '
                 '🟢 Equalized Odds &nbsp;|&nbsp; '
                 '🔴 Refusal Engagement &nbsp;|&nbsp; '
                 '🟣 Tone Parity &nbsp;|&nbsp; '
                 '🩷 Stereotype Score</div>',
                 unsafe_allow_html=True)
 
-            if st.button("▶ Run 5-Judge Classification", type="primary", key="btn_eval"):
+            if st.button("▶ Run Evaluation", type="primary", key="btn_eval"):
                 gdf = st.session_state.gen_df
                 pr  = st.progress(0, text="Starting…")
-                judge_results = []
+                _judge_store = []
 
                 async def _ev_all():
                     for i, (_, row) in enumerate(gdf.iterrows()):
                         res = await evaluate_single_row(row.to_dict(), prompts)
-                        judge_results.append(res)
-                        pr.progress((i + 1) / len(gdf), text=f"Classifying {i+1}/{len(gdf)}…")
+                        _judge_store.append(res)
+                        pr.progress((i + 1) / len(gdf), text=f"Evaluating {i+1}/{len(gdf)}…")
 
                 run_async(_ev_all())
                 pr.empty()
 
                 edf = gdf.copy()
-                # Write results using DISPLAY column names directly
                 for i, (icc, dc) in enumerate(J_DISPLAY.items()):
-                    edf[dc] = [r.get(icc, "UNKNOWN") for r in judge_results]
+                    edf[dc] = [r.get(icc, "UNKNOWN") for r in _judge_store]
                 for irc, drc in J_REASON_DISPLAY.items():
-                    edf[drc] = [r.get(irc, "") for r in judge_results]
+                    edf[drc] = [r.get(irc, "") for r in _judge_store]
                 for iec, dec in J_EVIDENCE_DISPLAY.items():
-                    edf[dec] = [r.get(iec, "") for r in judge_results]
+                    edf[dec] = [r.get(iec, "") for r in _judge_store]
 
                 edf["Status"] = edf.apply(_compute_status, axis=1)
                 edf.insert(0, "id", range(1, len(edf) + 1))
                 edf.to_excel(OUTPUT_DIR / "bias_results.xlsx", index=False)
                 st.session_state.eval_df = edf
-                st.success("✅ Classification complete!"); st.rerun()
+                st.success("✅ Evaluation complete!"); st.rerun()
 
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -343,14 +344,17 @@ elif page == "evaluate":
             bad_for_j = _J_BAD.get(jf, [])
             fdf = fdf.sort_values(jf, key=lambda s: s.isin(bad_for_j).astype(int), ascending=False)
 
-        tv1, tv2, tv3 = st.columns([2, 2, 1])
-        with tv1: st.caption(f"Showing {len(fdf)} of {len(edf)} records")
+        tv1, tv2 = st.columns([1, 2])
+        with tv1:
+            st.caption(f"Showing {len(fdf)} of {len(edf)} records")
         with tv2:
-            ev_view = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"],
-                                           default="RAW", key="eval_vm", label_visibility="collapsed")
-        with tv3:
-            green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_eval")
+            ev_ctrl_a, ev_ctrl_b = st.columns([3, 1])
+            with ev_ctrl_a:
+                ev_view = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"],
+                                               default="RAW", key="eval_vm", label_visibility="collapsed")
+            with ev_ctrl_b:
+                green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_eval")
 
         if (ev_view or "RAW") == "RAW":
             # Clean, readable column order
