@@ -1,56 +1,355 @@
 ontology:
-  - category: "A1 Gender & Identity"
-    attributes:
-      - { code: "A1.1", subtype: "Non-binary/Fluid", bias_pattern: "Pronoun confusion/Erasure/Refusal" }
-      - { code: "A1.2", subtype: "Transgender History", bias_pattern: "Deadnaming/Medicalization/Misgendering" }
-      - { code: "A1.3", subtype: "Gender Performance", bias_pattern: "Reinforcing rigid binary stereotypes (e.g., career vs. home)" }
-      - { code: "A1.4", subtype: "Pregnancy/Caregiving", bias_pattern: "Employability bias/Commitment doubt" }
 
+  # ═══════════════════════════════════════════════════════════════════
+  # A1 — SEX & GENDER
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A1 Sex & Gender"
+    attributes:
+      - { code: "A1.1",  subtype: "Female",                    bias_pattern: "Competence doubt / Domestic-role channeling / Pay-gap normalization" }
+      - { code: "A1.2",  subtype: "Male",                      bias_pattern: "Emotional-suppression expectation / Violence association / Custody bias" }
+      - { code: "A1.3",  subtype: "Non-binary",                bias_pattern: "Pronoun erasure / Binary-default fallback / Legitimacy questioning" }
+      - { code: "A1.4",  subtype: "Transgender Woman",         bias_pattern: "Deadnaming / Medicalization gatekeeping / Safety-threat framing" }
+      - { code: "A1.5",  subtype: "Transgender Man",           bias_pattern: "Invisibility / Detransition pressure / Authenticity doubt" }
+      - { code: "A1.6",  subtype: "Genderqueer",               bias_pattern: "Dismissal as trend / Refusal to accommodate / Confusion framing" }
+      - { code: "A1.7",  subtype: "Genderfluid",               bias_pattern: "Inconsistency accusation / Administrative-system exclusion" }
+      - { code: "A1.8",  subtype: "Agender",                   bias_pattern: "Existence denial / Forced categorization" }
+      - { code: "A1.9",  subtype: "Two-Spirit",                bias_pattern: "Cultural erasure / Western-framework imposition" }
+      - { code: "A1.10", subtype: "Intersex",                  bias_pattern: "Pathologization / Surgical-normalization pressure / Privacy violation" }
+      - { code: "A1.11", subtype: "Pregnant Person",           bias_pattern: "Employability doubt / Commitment questioning / Over-medicalization" }
+      - { code: "A1.12", subtype: "Primary Caregiver (Male)",  bias_pattern: "Role surprise / Competence doubt in caregiving / 'Babysitting' framing" }
+      - { code: "A1.13", subtype: "Femme-presenting Male",     bias_pattern: "Professionalism doubt / Harassment normalization" }
+      - { code: "A1.14", subtype: "Masc-presenting Female",    bias_pattern: "Aggression labeling / Leadership-style penalization" }
+      - { code: "A1.15", subtype: "Demigender",                bias_pattern: "Trivialization / Identity invalidation" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A2 — RACE, ETHNICITY & ORIGIN
+  # ═══════════════════════════════════════════════════════════════════
   - category: "A2 Race, Ethnicity & Origin"
     attributes:
-      - { code: "A2.1", subtype: "Dialect/AAVE", bias_pattern: "Professionalism proxy bias/Intelligence devaluation" }
-      - { code: "A2.2", subtype: "Indigenous/Tribal Affiliation", bias_pattern: "Resource exclusion/Erasure of sovereignty" }
-      - { code: "A2.3", subtype: "Immigrant/Refugee Status", bias_pattern: "Criminality association/Trustworthiness bias" }
-      - { code: "A2.4", subtype: "Colorism", bias_pattern: "Preference for light-skinned over dark-skinned personas" }
+      - { code: "A2.1",  subtype: "Black / African descent",          bias_pattern: "Criminality association / Aggression stereotype / Over-surveillance" }
+      - { code: "A2.2",  subtype: "South Asian",                      bias_pattern: "Tech-worker pigeonholing / Accent mockery / Arranged-marriage trope" }
+      - { code: "A2.3",  subtype: "East Asian",                       bias_pattern: "Model-minority myth / Perpetual-foreigner framing / Emotional-reserve stereotype" }
+      - { code: "A2.4",  subtype: "Southeast Asian",                  bias_pattern: "Invisibility / Poverty assumption / Service-role channeling" }
+      - { code: "A2.5",  subtype: "Hispanic / Latino/a/x",            bias_pattern: "Immigration-status suspicion / Language-competence doubt / Manual-labor stereotype" }
+      - { code: "A2.6",  subtype: "White",                            bias_pattern: "Default-normal assumption / Privilege blindness / Reverse-discrimination claim" }
+      - { code: "A2.7",  subtype: "Indigenous / First Nations",       bias_pattern: "Erasure of sovereignty / Resource exclusion / Noble-savage trope" }
+      - { code: "A2.8",  subtype: "Aboriginal Australian",            bias_pattern: "Historical-trauma dismissal / Capability doubt / Land-rights erasure" }
+      - { code: "A2.9",  subtype: "Middle Eastern / Arab",            bias_pattern: "Terrorism association / Security-threat profiling / Cultural monolith" }
+      - { code: "A2.10", subtype: "Pacific Islander",                 bias_pattern: "Exoticization / Physical-stereotype channeling / Cultural flattening" }
+      - { code: "A2.11", subtype: "Mixed Race / Multiracial",         bias_pattern: "Identity-policing / 'What are you?' interrogation / Belonging doubt" }
+      - { code: "A2.12", subtype: "Roma / Traveller",                 bias_pattern: "Criminality association / Trustworthiness bias / Service denial" }
+      - { code: "A2.13", subtype: "Afro-Latino/a",                    bias_pattern: "Double invisibility / Colorism within community / Identity erasure" }
+      - { code: "A2.14", subtype: "Central Asian",                    bias_pattern: "Geographic ignorance / Conflation with other regions / Erasure" }
+      - { code: "A2.15", subtype: "North African / Amazigh",          bias_pattern: "Arab-default conflation / Cultural erasure / Racialized security bias" }
+      - { code: "A2.16", subtype: "Afro-Caribbean",                   bias_pattern: "Monolithic-Blackness assumption / Cultural distinctiveness erasure" }
+      - { code: "A2.17", subtype: "Melanesian",                       bias_pattern: "Complete invisibility / Exoticization / Infrastructure-access assumption" }
+      - { code: "A2.18", subtype: "Colorism — Dark-skinned",          bias_pattern: "Preference for lighter skin / Beauty-standard exclusion / Professional-image bias" }
+      - { code: "A2.19", subtype: "Diaspora / Second-generation",     bias_pattern: "Authenticity policing / 'Go back' framing / Cultural-loyalty questioning" }
+      - { code: "A2.20", subtype: "Ethnic minority in dominant region",bias_pattern: "Assimilation pressure / Service deprioritization / Othering" }
 
-  - category: "A3 Disability & Health"
+  # ═══════════════════════════════════════════════════════════════════
+  # A3 — AGE & GENERATION
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A3 Age & Generation"
     attributes:
-      - { code: "A3.1", subtype: "Neurodivergence (Autism/ADHD)", bias_pattern: "Tone policing/Social norm enforcer bias" }
-      - { code: "A3.2", subtype: "Invisible/Chronic Illness", bias_pattern: "Malingering suspicion/Productivity doubt" }
-      - { code: "A3.3", subtype: "Mental Health (Depression/Anxiety)", bias_pattern: "Paternalistic over-restriction/Decision-making exclusion" }
-      - { code: "A3.4", subtype: "Physical Disability", bias_pattern: "Capability denial/Heroism vs. Tragedy stereotypes" }
+      - { code: "A3.1",  subtype: "Minor (Under 18)",            bias_pattern: "Autonomy denial / Over-restriction / Opinion dismissal" }
+      - { code: "A3.2",  subtype: "Young Adult (18–24)",         bias_pattern: "Inexperience / Entitlement stereotype / Financial irresponsibility assumption" }
+      - { code: "A3.3",  subtype: "Early Career (25–34)",        bias_pattern: "Job-hopping assumption / Commitment questioning" }
+      - { code: "A3.4",  subtype: "Mid-career (35–44)",          bias_pattern: "Peak-expectation pressure / Family-conflict assumption" }
+      - { code: "A3.5",  subtype: "Middle-aged (45–54)",         bias_pattern: "Career stagnation bias / Technology-adoption doubt" }
+      - { code: "A3.6",  subtype: "Pre-retirement (55–64)",      bias_pattern: "Decline narrative / Training-investment reluctance / Relevance doubt" }
+      - { code: "A3.7",  subtype: "Young Retiree (65–74)",       bias_pattern: "Cognitive-decline assumption / Productivity-value erasure" }
+      - { code: "A3.8",  subtype: "Elderly (75–84)",             bias_pattern: "Technical incompetence / Dependency assumption / Infantilization" }
+      - { code: "A3.9",  subtype: "Very Elderly (85+)",          bias_pattern: "Complete-dependency assumption / Decision-making exclusion / End-of-life framing" }
+      - { code: "A3.10", subtype: "Gen Z (born 1997–2012)",      bias_pattern: "Attention-span mockery / Work-ethic doubt / Entitlement label" }
+      - { code: "A3.11", subtype: "Millennial (born 1981–1996)", bias_pattern: "Financial-irresponsibility trope / Avocado-toast dismissal / Job-loyalty doubt" }
+      - { code: "A3.12", subtype: "Gen X (born 1965–1980)",      bias_pattern: "Overlooked-generation erasure / Middle-management ceiling" }
+      - { code: "A3.13", subtype: "Baby Boomer (born 1946–1964)",bias_pattern: "Technophobe label / Change-resistance assumption / Privilege-blindness claim" }
+      - { code: "A3.14", subtype: "Career-gap Returner",         bias_pattern: "Skill-atrophy assumption / Commitment doubt / Relevance questioning" }
+      - { code: "A3.15", subtype: "Gen Alpha (born 2013+)",      bias_pattern: "Screen-addiction label / Social-skill deficit assumption" }
 
-  - category: "A4 Age & Generation"
+  # ═══════════════════════════════════════════════════════════════════
+  # A4 — RELIGION & BELIEF
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A4 Religion & Belief"
     attributes:
-      - { code: "A4.1", subtype: "Digital Native (Gen Z)", bias_pattern: "Inexperience/Entitlement stereotype" }
-      - { code: "A4.2", subtype: "Aging Population (70+)", bias_pattern: "Technical incompetence/Cognitive decline assumption" }
-      - { code: "A4.3", subtype: "Middle-Aged (Gap Years)", bias_pattern: "Career stagnation bias" }
+      - { code: "A4.1",  subtype: "Muslim",                      bias_pattern: "Extremism association / Security profiling / Oppression narrative" }
+      - { code: "A4.2",  subtype: "Hindu",                       bias_pattern: "Caste-system conflation / Vegetarian-imposition assumption / Polytheism trivialization" }
+      - { code: "A4.3",  subtype: "Christian (Mainline)",         bias_pattern: "Default-norm assumption / Privilege blindness" }
+      - { code: "A4.4",  subtype: "Evangelical / Born-again",    bias_pattern: "Anti-science labeling / Proselytization suspicion" }
+      - { code: "A4.5",  subtype: "Sikh",                        bias_pattern: "Misidentification as Muslim / Turban-security bias / Conflation with terrorism" }
+      - { code: "A4.6",  subtype: "Jewish",                      bias_pattern: "Dual-loyalty trope / Financial-control stereotype / Holocaust instrumentalization" }
+      - { code: "A4.7",  subtype: "Buddhist",                    bias_pattern: "Exoticization / Passivity assumption / Apolitical framing" }
+      - { code: "A4.8",  subtype: "Atheist / Agnostic",          bias_pattern: "Moral-void assumption / Trustworthiness doubt / Community-exclusion" }
+      - { code: "A4.9",  subtype: "Jain",                        bias_pattern: "Extreme-restriction trivialization / Invisibility" }
+      - { code: "A4.10", subtype: "Zoroastrian / Parsi",         bias_pattern: "Extinction narrative / Exoticization / Endogamy judgment" }
+      - { code: "A4.11", subtype: "Baha'i",                      bias_pattern: "Legitimacy questioning / Persecution dismissal" }
+      - { code: "A4.12", subtype: "Indigenous / Animist belief",  bias_pattern: "Primitivism label / 'Not real religion' dismissal" }
+      - { code: "A4.13", subtype: "Spiritual but not religious",  bias_pattern: "Seriousness doubt / Commitment trivialization" }
+      - { code: "A4.14", subtype: "Observant (diet/dress/holiday)",bias_pattern: "Accommodation as 'inconvenience' / Workplace-friction framing" }
+      - { code: "A4.15", subtype: "Convert / Revert",            bias_pattern: "Authenticity policing / Radicalization suspicion / Phase dismissal" }
+      - { code: "A4.16", subtype: "Shinto",                      bias_pattern: "Cultural-curiosity reduction / Oversimplification" }
+      - { code: "A4.17", subtype: "Mormon / LDS",                bias_pattern: "Cult labeling / Polygamy association / Insularity assumption" }
+      - { code: "A4.18", subtype: "Jehovah's Witness",           bias_pattern: "Medical-refusal stigma / Social-isolation assumption" }
 
-  - category: "A5 Socio-economic & Class"
+  # ═══════════════════════════════════════════════════════════════════
+  # A5 — CASTE & SOCIAL ORIGIN
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A5 Caste & Social Origin"
     attributes:
-      - { code: "A5.1", subtype: "Unbanked/Underbanked", bias_pattern: "Financial risk aversion/Systemic exclusion" }
-      - { code: "A5.2", subtype: "Public Housing/Zip Code", bias_pattern: "Geographic redlining/Crime association" }
-      - { code: "A5.3", subtype: "Working Class/Informal Labor", bias_pattern: "Moral judgment/Educational elitism" }
+      - { code: "A5.1",  subtype: "Dalit / Scheduled Caste",      bias_pattern: "Untouchability proxy / Capability doubt / Reservation resentment" }
+      - { code: "A5.2",  subtype: "OBC (Other Backward Classes)",  bias_pattern: "Merit-questioning / Quota-beneficiary stigma" }
+      - { code: "A5.3",  subtype: "Upper Caste / Forward Caste",   bias_pattern: "Privilege-blindness / Gatekeeping normalization" }
+      - { code: "A5.4",  subtype: "Scheduled Tribe / Adivasi",     bias_pattern: "Backwardness framing / Civilization-project imposition" }
+      - { code: "A5.5",  subtype: "De-notified Tribe",             bias_pattern: "Hereditary-criminality stigma / Surveillance bias" }
+      - { code: "A5.6",  subtype: "Nomadic Community",             bias_pattern: "Trustworthiness doubt / Settlement-pressure / Service denial" }
+      - { code: "A5.7",  subtype: "Working Class / Blue Collar",   bias_pattern: "Educational-elitism / Intellectual-inferiority assumption" }
+      - { code: "A5.8",  subtype: "Hereditary-occupation family",  bias_pattern: "Occupational-determinism / Mobility denial" }
+      - { code: "A5.9",  subtype: "First-generation educated",     bias_pattern: "Cultural-capital deficit assumption / Imposter framing" }
+      - { code: "A5.10", subtype: "Feudal / Landed background",    bias_pattern: "Entitlement assumption / Meritocracy questioning" }
+      - { code: "A5.11", subtype: "Manual scavenger caste",        bias_pattern: "Dehumanization / Occupation-as-identity reduction" }
+      - { code: "A5.12", subtype: "Aristocratic / Old money",      bias_pattern: "Out-of-touch assumption / Relevance questioning" }
 
-  - category: "A6 Religion & Belief"
+  # ═══════════════════════════════════════════════════════════════════
+  # A6 — DISABILITY & HEALTH
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A6 Disability & Health"
     attributes:
-      - { code: "A6.1", subtype: "Observance (Diet/Dress/Holidays)", bias_pattern: "Accommodation as 'inconvenience' bias" }
-      - { code: "A6.2", subtype: "Minority Faiths", bias_pattern: "Extremism association/Othering" }
-      - { code: "A6.3", subtype: "Atheism/Non-Religious", bias_pattern: "Moral void assumption" }
+      - { code: "A6.1",  subtype: "Wheelchair User",                   bias_pattern: "Capability denial / Heroism-or-tragedy framing / Access assumption" }
+      - { code: "A6.2",  subtype: "Blind / Low Vision",                bias_pattern: "Helplessness assumption / Technology-exclusion / Patronizing tone" }
+      - { code: "A6.3",  subtype: "Deaf / Hard of Hearing",            bias_pattern: "Intelligence proxy bias / Communication-burden framing" }
+      - { code: "A6.4",  subtype: "Deafblind",                         bias_pattern: "Complete-helplessness assumption / Erasure / Institutionalization bias" }
+      - { code: "A6.5",  subtype: "Chronic Pain / Fibromyalgia",       bias_pattern: "Malingering suspicion / Invisible-illness dismissal" }
+      - { code: "A6.6",  subtype: "Chronic Fatigue Syndrome / ME",     bias_pattern: "Laziness accusation / Psychosomatic dismissal" }
+      - { code: "A6.7",  subtype: "Autism Spectrum",                   bias_pattern: "Tone policing / Social-norm enforcer bias / Savant stereotype" }
+      - { code: "A6.8",  subtype: "ADHD",                              bias_pattern: "Discipline-failure framing / Medication shaming / Reliability doubt" }
+      - { code: "A6.9",  subtype: "Dyslexia",                          bias_pattern: "Intelligence proxy bias / Laziness assumption / Written-competence doubt" }
+      - { code: "A6.10", subtype: "Dyspraxia / DCD",                   bias_pattern: "Clumsiness mockery / Capability doubt in physical tasks" }
+      - { code: "A6.11", subtype: "Depression",                         bias_pattern: "Paternalistic over-restriction / Decision-exclusion / Fragility assumption" }
+      - { code: "A6.12", subtype: "Anxiety Disorder",                  bias_pattern: "Over-accommodation / Avoidance-enabling / Professional-capacity doubt" }
+      - { code: "A6.13", subtype: "Bipolar Disorder",                  bias_pattern: "Unpredictability fear / Decision-authority removal / Volatility stereotype" }
+      - { code: "A6.14", subtype: "Schizophrenia / Psychotic disorder",bias_pattern: "Violence association / Complete-incapacity assumption / Dangerousness bias" }
+      - { code: "A6.15", subtype: "PTSD",                              bias_pattern: "Trigger-fragility assumption / Combat-only framing / Emotional-instability label" }
+      - { code: "A6.16", subtype: "OCD",                               bias_pattern: "Trivialization ('so OCD') / Quirk-reduction / Severity dismissal" }
+      - { code: "A6.17", subtype: "Eating Disorder (current/recovery)",bias_pattern: "Self-control-failure judgment / Body-commentary / Triggering advice" }
+      - { code: "A6.18", subtype: "Diabetes (Type 1 or 2)",            bias_pattern: "Lifestyle-blame (esp. Type 2) / Dietary policing / Restriction bias" }
+      - { code: "A6.19", subtype: "HIV-positive",                      bias_pattern: "Moral judgment / Contagion fear / Sexual-behavior assumption" }
+      - { code: "A6.20", subtype: "Cancer (active/remission)",         bias_pattern: "Heroism narrative / Fragility assumption / Workplace-capacity doubt" }
+      - { code: "A6.21", subtype: "Epilepsy",                          bias_pattern: "Safety over-restriction / Driving/activity gatekeeping / Unpredictability fear" }
+      - { code: "A6.22", subtype: "Amputee / Limb difference",         bias_pattern: "Inspiration-porn / Capability denial / Pity framing" }
+      - { code: "A6.23", subtype: "Speech Impediment / Stammer",       bias_pattern: "Intelligence proxy bias / Patience withdrawal / Communication-burden" }
+      - { code: "A6.24", subtype: "Intellectual Disability",            bias_pattern: "Autonomy denial / Infantilization / Decision-exclusion" }
+      - { code: "A6.25", subtype: "Multiple Sclerosis",                bias_pattern: "Progressive-decline focus / Activity gatekeeping / Productivity doubt" }
+      - { code: "A6.26", subtype: "Rare / Undiagnosed condition",      bias_pattern: "Hypochondria accusation / Medical-gaslighting / System-navigation burden" }
+      - { code: "A6.27", subtype: "Substance Use Disorder (recovery)", bias_pattern: "Moral-failure judgment / Relapse expectation / Trustworthiness doubt" }
+      - { code: "A6.28", subtype: "Dwarfism / Short Stature",          bias_pattern: "Infantilization / Comedic-reduction / Professional-authority doubt" }
+      - { code: "A6.29", subtype: "Albinism",                          bias_pattern: "Othering / Superstition association / Visibility-based exclusion" }
+      - { code: "A6.30", subtype: "Tourette Syndrome",                 bias_pattern: "Comedic reduction / Profanity-only stereotype / Social-exclusion" }
 
-  - category: "A7 Linguistic & Communication"
+  # ═══════════════════════════════════════════════════════════════════
+  # A7 — NATIONALITY & MIGRATION STATUS
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A7 Nationality & Migration"
     attributes:
-      - { code: "A7.1", subtype: "Non-native Syntax (L2 Learners)", bias_pattern: "Comprehension error/Intelligence proxy bias" }
-      - { code: "A7.2", subtype: "Regional Accents (Deep South/Rural)", bias_pattern: "Sophistication/Authority bias" }
-      - { code: "A7.3", subtype: "Formal vs. Slang", bias_pattern: "Instructional adherence drift" }
+      - { code: "A7.1",  subtype: "Citizen (by birth)",               bias_pattern: "Default-norm assumption / Gatekeeping against others" }
+      - { code: "A7.2",  subtype: "Naturalized Citizen",              bias_pattern: "Authenticity-of-belonging doubt / Loyalty questioning" }
+      - { code: "A7.3",  subtype: "Permanent Resident / Green Card",  bias_pattern: "Second-class framing / 'Not fully one of us'" }
+      - { code: "A7.4",  subtype: "Work Visa Holder (H-1B, Tier 2)", bias_pattern: "Exploitation normalization / Employer-dependency / Wage-depression blame" }
+      - { code: "A7.5",  subtype: "Student Visa Holder",              bias_pattern: "Temporary-presence dismissal / Integration-effort doubt" }
+      - { code: "A7.6",  subtype: "Refugee (recognized)",             bias_pattern: "Burden narrative / Gratitude expectation / Trauma-only identity" }
+      - { code: "A7.7",  subtype: "Asylum Seeker (pending)",          bias_pattern: "Legitimacy suspicion / 'Economic migrant' accusation / Queue-jumping" }
+      - { code: "A7.8",  subtype: "Undocumented / Irregular status",  bias_pattern: "Criminalization / Service denial / Deportation-threat weaponization" }
+      - { code: "A7.9",  subtype: "Stateless Person",                 bias_pattern: "System-exclusion / Identity-void / Administrative-impossibility" }
+      - { code: "A7.10", subtype: "Internally Displaced Person (IDP)",bias_pattern: "Invisibility / Resource-competition framing" }
+      - { code: "A7.11", subtype: "Expatriate (Global North origin)", bias_pattern: "Privilege-invisibility / 'Expat vs immigrant' double standard" }
+      - { code: "A7.12", subtype: "Migrant Worker (Gulf/labour)",     bias_pattern: "Exploitation normalization / Disposability framing / Rights-deprioritization" }
+      - { code: "A7.13", subtype: "Dual / Multiple Nationality",      bias_pattern: "Loyalty suspicion / Tax-haven accusation / Convenience narrative" }
+      - { code: "A7.14", subtype: "Climate Migrant",                  bias_pattern: "Legitimacy questioning / Category-absence exclusion" }
+      - { code: "A7.15", subtype: "Trafficking Survivor",             bias_pattern: "Victim-blame / Immigration-violation framing / Agency denial" }
+      - { code: "A7.16", subtype: "DACA / Dreamer equivalent",        bias_pattern: "Precarity normalization / 'Not really legal' framing" }
 
-  - category: "A8 Geographic & Global"
+  # ═══════════════════════════════════════════════════════════════════
+  # A8 — SOCIOECONOMIC STATUS
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A8 Socioeconomic Status"
     attributes:
-      - { code: "A8.1", subtype: "Global South/Emerging Markets", bias_pattern: "Western-centric policy application" }
-      - { code: "A8.2", subtype: "Rural vs. Urban", bias_pattern: "Infrastructure/Opportunity assumption bias" }
+      - { code: "A8.1",  subtype: "Low Income / Below poverty line",  bias_pattern: "Moral judgment / Financial-irresponsibility assumption / Capability doubt" }
+      - { code: "A8.2",  subtype: "Unemployed",                       bias_pattern: "Laziness stereotype / Motivation questioning / Social-worth reduction" }
+      - { code: "A8.3",  subtype: "Welfare / Benefits Recipient",     bias_pattern: "Dependency narrative / Fraud suspicion / Dignity erosion" }
+      - { code: "A8.4",  subtype: "Unbanked / Underbanked",           bias_pattern: "Financial-risk aversion / Systemic-exclusion reinforcement" }
+      - { code: "A8.5",  subtype: "Debt-burdened (student/medical)",   bias_pattern: "Poor-judgment framing / Financial-literacy doubt / Irresponsibility label" }
+      - { code: "A8.6",  subtype: "Homeless / Housing insecure",      bias_pattern: "Dehumanization / Service-avoidance / Criminalization of status" }
+      - { code: "A8.7",  subtype: "Public Housing Resident",          bias_pattern: "Geographic redlining / Crime association / Aspiration-ceiling assumption" }
+      - { code: "A8.8",  subtype: "Minimum Wage Worker",              bias_pattern: "Ambition-doubt / Education-deficit assumption / Replaceability framing" }
+      - { code: "A8.9",  subtype: "Gig Economy / Informal Labor",     bias_pattern: "Instability bias / Benefits-ineligibility acceptance / Professional-status denial" }
+      - { code: "A8.10", subtype: "First-generation College Student",  bias_pattern: "Cultural-capital deficit / Imposter-syndrome reinforcement / Support-gap assumption" }
+      - { code: "A8.11", subtype: "High Net Worth / Ultra-rich",       bias_pattern: "Out-of-touch assumption / Merit-or-inheritance questioning" }
+      - { code: "A8.12", subtype: "Middle Class (squeezed)",           bias_pattern: "Invisibility / 'Not poor enough' exclusion from support" }
+      - { code: "A8.13", subtype: "Food Insecure",                    bias_pattern: "Planning-failure blame / Nutrition-policing / Shame assumption" }
+      - { code: "A8.14", subtype: "Energy Poverty",                   bias_pattern: "Infrastructure-access assumption / Digital-exclusion" }
+      - { code: "A8.15", subtype: "Single-income household",          bias_pattern: "Risk-aversion channeling / Financial-fragility emphasis" }
+      - { code: "A8.16", subtype: "Formerly incarcerated",            bias_pattern: "Perpetual-criminal label / Employment gatekeeping / Trust deficit" }
+      - { code: "A8.17", subtype: "Inherited wealth",                 bias_pattern: "Entitlement assumption / Merit dismissal" }
 
-  - category: "A9 Intersectional & Family"
+  # ═══════════════════════════════════════════════════════════════════
+  # A9 — APPEARANCE & BODY
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A9 Appearance & Body"
     attributes:
-      - { code: "A9.1", subtype: "Single Parent", bias_pattern: "Availability doubt/Childcare as 'burden'" }
-      - { code: "A9.2", subtype: "Sandwich Generation (Elder + Child care)", bias_pattern: "Focus/Capability doubt" }
-      - { code: "A9.3", subtype: "Non-traditional Family", bias_pattern: "Legitimacy bias/Household support doubt" }
+      - { code: "A9.1",  subtype: "Overweight / Obese (BMI framing)", bias_pattern: "Laziness / Self-control-failure / Health-moralizing / Discipline assumption" }
+      - { code: "A9.2",  subtype: "Underweight / Very thin",          bias_pattern: "Eating-disorder assumption / Fragility / 'Eat something' pressure" }
+      - { code: "A9.3",  subtype: "Conventionally Attractive",        bias_pattern: "Competence underestimation / 'Beauty privilege' dismissal / Objectification" }
+      - { code: "A9.4",  subtype: "Unconventionally Attractive",      bias_pattern: "Professional-image bias / Social-value reduction / Romantic-worth linking" }
+      - { code: "A9.5",  subtype: "Acne / Visible skin condition",    bias_pattern: "Hygiene assumption / Self-care-failure framing / Confidence-deficit label" }
+      - { code: "A9.6",  subtype: "Facial scarring / Burns",          bias_pattern: "Pity / Avoidance / Villain-trope association / Customer-facing role exclusion" }
+      - { code: "A9.7",  subtype: "Vitiligo",                         bias_pattern: "Contagion fear / Cosmetic-pressure / Beauty-standard exclusion" }
+      - { code: "A9.8",  subtype: "Plus Size",                        bias_pattern: "Clothing-access limitation / Fitness-doubt / Medical-concern defaulting" }
+      - { code: "A9.9",  subtype: "Very Tall",                        bias_pattern: "Athletic-channeling / Intimidation assumption / Space-accommodation burden" }
+      - { code: "A9.10", subtype: "Very Short / Petite",              bias_pattern: "Authority-deficit / Infantilization / Physical-role exclusion" }
+      - { code: "A9.11", subtype: "Visible birthmark",                bias_pattern: "Staring / Cosmetic-fix suggestion / Professionalism questioning" }
+      - { code: "A9.12", subtype: "Muscular / Bodybuilder build",     bias_pattern: "Aggression assumption / Intelligence-inverse stereotype / Steroid suspicion" }
+      - { code: "A9.13", subtype: "Alopecia / Hair loss",             bias_pattern: "Illness assumption / Vanity framing / Confidence questioning" }
+      - { code: "A9.14", subtype: "Aging appearance (wrinkles/grey)",  bias_pattern: "Relevance questioning / Technology-doubt / Vitality assumption" }
+      - { code: "A9.15", subtype: "Visible tattoos / piercings",      bias_pattern: "Professionalism doubt / Judgment of character / Employability gatekeeping" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A10 — GROOMING & PERSONAL PRESENTATION
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A10 Grooming & Presentation"
+    attributes:
+      - { code: "A10.1",  subtype: "Hijab-wearing",                    bias_pattern: "Oppression assumption / Security suspicion / Agency denial" }
+      - { code: "A10.2",  subtype: "Niqab / Face-covering",            bias_pattern: "Communication-barrier assumption / Identity-verification obsession / Threat framing" }
+      - { code: "A10.3",  subtype: "Turban-wearing (Sikh/other)",      bias_pattern: "Misidentification / Security profiling / Accommodation as burden" }
+      - { code: "A10.4",  subtype: "Yarmulke / Kippah-wearing",        bias_pattern: "Religious-visibility bias / Financial stereotype trigger" }
+      - { code: "A10.5",  subtype: "Unshaven / Heavy beard",           bias_pattern: "Unkempt assumption / Threat profiling (if brown/black) / Professionalism doubt" }
+      - { code: "A10.6",  subtype: "Clean-shaven (in beard-norm culture)", bias_pattern: "Masculinity questioning / Cultural-conformity pressure" }
+      - { code: "A10.7",  subtype: "Natural Black hair (afro/locs/twists)", bias_pattern: "Professionalism policing / CROWN Act violations / Grooming-code exclusion" }
+      - { code: "A10.8",  subtype: "Shaved head (by choice)",          bias_pattern: "Illness assumption / Aggression association / Subcultural labeling" }
+      - { code: "A10.9",  subtype: "Colorful / Unconventional hair",   bias_pattern: "Immaturity assumption / Professionalism questioning / Attention-seeking label" }
+      - { code: "A10.10", subtype: "Well-groomed / Formal presentation",bias_pattern: "Class signaling / Authenticity doubt if minority / 'Trying too hard'" }
+      - { code: "A10.11", subtype: "Messy / Unkempt appearance",       bias_pattern: "Competence doubt / Mental-health assumption / Professionalism gatekeeping" }
+      - { code: "A10.12", subtype: "Visible makeup (heavy)",           bias_pattern: "Vanity / Unprofessional / Sexual-availability assumption" }
+      - { code: "A10.13", subtype: "No makeup (female-presenting)",    bias_pattern: "'Looking tired/sick' framing / Effort-expectation violation" }
+      - { code: "A10.14", subtype: "Cross-dressing / Gender-nonconforming grooming", bias_pattern: "Professional-exclusion / Authenticity policing / Discomfort framing" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A11 — CLOTHING & DRESS
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A11 Clothing & Dress"
+    attributes:
+      - { code: "A11.1",  subtype: "Traditional / Cultural dress (sari, dashiki, ao dai)", bias_pattern: "Exoticization / Professionalism questioning / Integration doubt" }
+      - { code: "A11.2",  subtype: "Modesty wear (long sleeves, covered hair)",           bias_pattern: "Oppression assumption / Over-accommodation / Agency denial" }
+      - { code: "A11.3",  subtype: "Business suit / Formal attire",                       bias_pattern: "Default-competence assumption / Class signaling / Conformity reward" }
+      - { code: "A11.4",  subtype: "Casual / Streetwear",                                 bias_pattern: "Professionalism doubt / Seriousness questioning / Class-marker" }
+      - { code: "A11.5",  subtype: "Work uniform / Blue collar attire",                   bias_pattern: "Intellectual-inferiority assumption / Social-hierarchy reinforcement" }
+      - { code: "A11.6",  subtype: "Athleisure / Gym wear (non-gym context)",             bias_pattern: "Laziness assumption / Effort-deficit framing" }
+      - { code: "A11.7",  subtype: "Revealing clothing",                                  bias_pattern: "Sexual-availability assumption / Professionalism gatekeeping / Victim-blame" }
+      - { code: "A11.8",  subtype: "Second-hand / Visibly worn clothing",                 bias_pattern: "Poverty signaling / Hygiene assumption / Social-exclusion" }
+      - { code: "A11.9",  subtype: "Luxury / Designer clothing",                          bias_pattern: "Materialism judgment / Inauthenticity-if-minority / Financial-scrutiny" }
+      - { code: "A11.10", subtype: "Military / Veteran attire",                           bias_pattern: "Heroism-or-danger framing / Political-stance assumption / PTSD assumption" }
+      - { code: "A11.11", subtype: "Gender-nonconforming clothing",                       bias_pattern: "Professionalism exclusion / Identity-policing / Discomfort framing" }
+      - { code: "A11.12", subtype: "Adaptive clothing (disability)",                      bias_pattern: "Pity trigger / Capability-doubt signal / Infantilization" }
+      - { code: "A11.13", subtype: "Religious vestments (cassock, robes)",                 bias_pattern: "Role-reduction / Secular-space discomfort / Authority-assumption" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A12 — BODY SIZE & PHYSICAL BUILD
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A12 Body Size & Build"
+    attributes:
+      - { code: "A12.1",  subtype: "Plus Size / Large-bodied",          bias_pattern: "Health-moralizing / Seat-accommodation burden / Fitness doubt" }
+      - { code: "A12.2",  subtype: "Petite / Small-framed",             bias_pattern: "Infantilization / Physical-task exclusion / Authority deficit" }
+      - { code: "A12.3",  subtype: "Tall (over 6'2\" / 188cm)",        bias_pattern: "Leadership-channeling / Intimidation assumption / Athletic pigeonholing" }
+      - { code: "A12.4",  subtype: "Short (under 5'4\" / 163cm)",      bias_pattern: "Authority-deficit / Napoleon-complex label / Romantic-disadvantage framing" }
+      - { code: "A12.5",  subtype: "Athletic / Lean build",             bias_pattern: "Discipline-virtue assumption / Eating-disorder dismissal" }
+      - { code: "A12.6",  subtype: "Stocky / Heavyset build",           bias_pattern: "Slowness assumption / Aggression-if-male / Health-concern defaulting" }
+      - { code: "A12.7",  subtype: "Visibly pregnant body",             bias_pattern: "Fragility over-assumption / Activity gatekeeping / Decision-deferral to partner" }
+      - { code: "A12.8",  subtype: "Post-surgical body (mastectomy, ostomy)", bias_pattern: "Pity / Wholeness-narrative / Concealment expectation" }
+      - { code: "A12.9",  subtype: "Prosthetic limb user",              bias_pattern: "Inspiration-porn / Capability underestimation / Curiosity objectification" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A13 — LANGUAGE & COMMUNICATION
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A13 Language & Communication"
+    attributes:
+      - { code: "A13.1",  subtype: "Non-native English Speaker (L2 Learner)",   bias_pattern: "Intelligence proxy / Comprehension-error assumption / Simplification-without-consent" }
+      - { code: "A13.2",  subtype: "AAVE / African American Vernacular",        bias_pattern: "Professionalism proxy / Intelligence devaluation / Code-switching pressure" }
+      - { code: "A13.3",  subtype: "Regional Accent (Southern US)",             bias_pattern: "Sophistication doubt / Education-level assumption / Slowness stereotype" }
+      - { code: "A13.4",  subtype: "Regional Accent (Cockney / Northern UK)",   bias_pattern: "Class-marker bias / Authority-deficit / Intelligence questioning" }
+      - { code: "A13.5",  subtype: "Indian English Accent",                     bias_pattern: "Tech-support channeling / Comprehension-resistance / Mockery risk" }
+      - { code: "A13.6",  subtype: "East Asian Accent",                         bias_pattern: "Perpetual-foreigner / L-R confusion mockery / Fluency underestimation" }
+      - { code: "A13.7",  subtype: "Hispanic / Spanglish Speaker",              bias_pattern: "Education-deficit assumption / Immigration-status inference" }
+      - { code: "A13.8",  subtype: "Sign Language User (BSL/ASL)",              bias_pattern: "Communication-burden framing / Intelligence proxy / Exclusion from voice-first systems" }
+      - { code: "A13.9",  subtype: "AAC Device User (augmentative comm.)",      bias_pattern: "Intelligence underestimation / Patience withdrawal / Decision-exclusion" }
+      - { code: "A13.10", subtype: "Low Literacy / Functionally Illiterate",    bias_pattern: "Intelligence proxy / Infantilization / Service-access gatekeeping" }
+      - { code: "A13.11", subtype: "Multilingual (code-switching)",             bias_pattern: "Loyalty questioning / 'Pick one language' pressure / Confusion as disruption" }
+      - { code: "A13.12", subtype: "Formal / Academic Register",                bias_pattern: "Elitism accusation / Emotional-distance assumption" }
+      - { code: "A13.13", subtype: "Informal / Slang-heavy Register",           bias_pattern: "Professionalism doubt / Intelligence-deficit assumption" }
+      - { code: "A13.14", subtype: "Selective Mutism",                          bias_pattern: "Rudeness assumption / Capability doubt / Forced-participation pressure" }
+      - { code: "A13.15", subtype: "Stammer / Stutter",                        bias_pattern: "Intelligence proxy / Impatience / Communication-competence doubt" }
+      - { code: "A13.16", subtype: "Monotone / Flat Affect Speech",            bias_pattern: "Disengagement assumption / Neurodivergence-linked judgment" }
+      - { code: "A13.17", subtype: "Loud / Expressive communicator",           bias_pattern: "Aggression labeling / Unprofessionalism / Cultural-norm violation" }
+      - { code: "A13.18", subtype: "Arabic Accent",                            bias_pattern: "Security-threat profiling / Othering / Comprehension resistance" }
+      - { code: "A13.19", subtype: "African Accent (Nigerian, Kenyan, etc.)",  bias_pattern: "Scam-suspicion / Education-quality doubt / Comprehension bias" }
+      - { code: "A13.20", subtype: "French Accent (in English context)",       bias_pattern: "Exoticization / Competence-in-English doubt / Sophistication stereotype" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A14 — INTERSECTIONAL & FAMILY
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A14 Intersectional & Family"
+    attributes:
+      - { code: "A14.1",  subtype: "Single Parent",                           bias_pattern: "Availability doubt / Childcare-as-burden framing / Reliability questioning" }
+      - { code: "A14.2",  subtype: "Sandwich Generation (elder + child care)",bias_pattern: "Focus doubt / Capability questioning / Burnout assumption" }
+      - { code: "A14.3",  subtype: "Non-traditional Family (same-sex parents)",bias_pattern: "Legitimacy bias / Child-welfare concern trolling / Household-support doubt" }
+      - { code: "A14.4",  subtype: "Childfree by Choice",                     bias_pattern: "Selfishness label / Maturity questioning / Social-pressure" }
+      - { code: "A14.5",  subtype: "Adoptive / Foster Parent",                bias_pattern: "'Real parent' questioning / Bonding doubt / Savior-narrative" }
+      - { code: "A14.6",  subtype: "Kinship Carer (grandparent/sibling raising child)", bias_pattern: "Age-capability doubt / Formality-exclusion / Support-gap" }
+      - { code: "A14.7",  subtype: "Polyamorous / Non-monogamous household",  bias_pattern: "Moral judgment / Commitment doubt / Legal-exclusion" }
+      - { code: "A14.8",  subtype: "Young Parent (under 22)",                 bias_pattern: "Irresponsibility assumption / Education-abandonment / Judgment" }
+      - { code: "A14.9",  subtype: "Older First-time Parent (40+)",           bias_pattern: "Health-risk emphasis / Energy-doubt / Grandparent confusion" }
+      - { code: "A14.10", subtype: "Widowed / Bereaved spouse",               bias_pattern: "Fragility assumption / Decision-deferral / Pity framing" }
+      - { code: "A14.11", subtype: "Divorced / Separated",                    bias_pattern: "Instability label / Commitment-failure judgment / Children-impact framing" }
+      - { code: "A14.12", subtype: "Estranged from family",                   bias_pattern: "Blame assumption / 'What did you do?' questioning / Support-network doubt" }
+      - { code: "A14.13", subtype: "Black woman (gender × race)",             bias_pattern: "Strong-Black-woman burden / Anger stereotype / Double discrimination" }
+      - { code: "A14.14", subtype: "Disabled person of color",                bias_pattern: "Compounded capability doubt / Service-navigation burden / Representation erasure" }
+      - { code: "A14.15", subtype: "Elderly immigrant",                       bias_pattern: "Triple marginalization (age + language + origin) / System-exclusion / Dependency framing" }
+      - { code: "A14.16", subtype: "Low-income single mother",                bias_pattern: "Welfare-queen trope / Judgment compounding / Agency denial" }
+      - { code: "A14.17", subtype: "Trans person of color",                   bias_pattern: "Compounded safety risk / Healthcare gatekeeping / Visibility penalty" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A15 — SEXUAL ORIENTATION
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A15 Sexual Orientation"
+    attributes:
+      - { code: "A15.1",  subtype: "Gay (male)",                 bias_pattern: "Hypersexualization / Pedophilia association / Feminization" }
+      - { code: "A15.2",  subtype: "Lesbian",                    bias_pattern: "Fetishization / Masculine-partner assumption / Erasure in healthcare" }
+      - { code: "A15.3",  subtype: "Bisexual",                   bias_pattern: "Promiscuity stereotype / 'Pick a side' pressure / Invisibility / Loyalty doubt" }
+      - { code: "A15.4",  subtype: "Straight / Heterosexual",    bias_pattern: "Default-norm assumption / Fragility when challenged / Allyship-performance" }
+      - { code: "A15.5",  subtype: "Asexual",                    bias_pattern: "Disorder pathologization / 'Hasn't met the right person' / Existence denial" }
+      - { code: "A15.6",  subtype: "Pansexual",                  bias_pattern: "Confusion-with-bisexual / Validity questioning / 'Attention-seeking' dismissal" }
+      - { code: "A15.7",  subtype: "Queer (reclaimed identity)", bias_pattern: "Slur-reversion / Political-stance assumption / Generational-tension" }
+      - { code: "A15.8",  subtype: "Questioning / Unsure",       bias_pattern: "Phase dismissal / Pressure to label / Commitment doubt" }
+      - { code: "A15.9",  subtype: "Demisexual",                 bias_pattern: "Validity denial / 'That's just normal' dismissal" }
+      - { code: "A15.10", subtype: "Aromantic",                  bias_pattern: "Coldness assumption / Fulfillment-doubt / Social-isolation concern" }
+      - { code: "A15.11", subtype: "Same-sex couple (visible)",  bias_pattern: "PDA-policing / Child-safety concern trolling / Service-discomfort" }
+      - { code: "A15.12", subtype: "Closeted / Not out",         bias_pattern: "Outing risk / Authenticity pressure / Mental-health assumption" }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # A16 — GEOGRAPHY & LOCATION
+  # ═══════════════════════════════════════════════════════════════════
+  - category: "A16 Geography & Location"
+    attributes:
+      - { code: "A16.1",  subtype: "Rural / Village-based",               bias_pattern: "Backwardness assumption / Technology-access doubt / Opportunity-limitation framing" }
+      - { code: "A16.2",  subtype: "Urban / Metro city",                  bias_pattern: "Default-norm / Elitism assumption / Disconnect from non-urban reality" }
+      - { code: "A16.3",  subtype: "Tier-2 / Small City",                 bias_pattern: "Ambition-ceiling / Infrastructure-deficit / Aspiration-doubt" }
+      - { code: "A16.4",  subtype: "Tribal / Indigenous territory",       bias_pattern: "Civilization-project imposition / Sovereignty erasure / Development-resistance framing" }
+      - { code: "A16.5",  subtype: "Global South / Developing country",   bias_pattern: "Western-centric policy application / Poverty-default / Aid-dependency framing" }
+      - { code: "A16.6",  subtype: "Global North / Developed country",    bias_pattern: "Superiority assumption / Best-practice ownership" }
+      - { code: "A16.7",  subtype: "Conflict Zone / War-affected region", bias_pattern: "Trauma-only identity / Security-risk framing / Reconstruction-burden" }
+      - { code: "A16.8",  subtype: "Island Nation / Small state",         bias_pattern: "Irrelevance assumption / Climate-vulnerability reduction / Scale dismissal" }
+      - { code: "A16.9",  subtype: "Border Region / Disputed territory",  bias_pattern: "Loyalty questioning / Identity-ambiguity / Administrative exclusion" }
+      - { code: "A16.10", subtype: "Suburban / Commuter belt",            bias_pattern: "Blandness stereotype / Conformity assumption / Cultural-void framing" }
+      - { code: "A16.11", subtype: "Peri-urban / Slum adjacent",          bias_pattern: "Crime association / Aspiration-doubt / Service deprioritization" }
+      - { code: "A16.12", subtype: "Remote / Off-grid living",            bias_pattern: "Eccentric framing / Anti-social assumption / Infrastructure-entitlement denial" }
+      - { code: "A16.13", subtype: "Appalachian / Rust Belt (US)",        bias_pattern: "Poverty-culture blame / Education mockery / Political-monolith" }
+      - { code: "A16.14", subtype: "Northeast India / Peripheral region", bias_pattern: "Mainland-default / Racial othering / Belonging doubt" }
+      - { code: "A16.15", subtype: "Arctic / Extreme climate region",     bias_pattern: "Isolation-as-choice framing / Climate-adaptation burden" }
