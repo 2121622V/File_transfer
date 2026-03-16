@@ -1472,78 +1472,79 @@ elif page == "analysis":
         green_download("⬇ Full Results", to_excel_bytes(edf), "bias_results.xlsx",
                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_ana")
 
-    # ── JUDGE PERFORMANCE STACKED BAR + CARDS ────────────────────────────────
+    # ── JUDGE PERFORMANCE STACKED BAR + GAP CARDS ────────────────────────────
     st.divider(); section_label("OVERALL JUDGE PERFORMANCE — CLASSIFICATION SPLIT")
     judge_perf = []
     for dc, jname, jcolor in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS):
         if dc not in edf.columns: continue
-        bv = _J_BAD.get(dc,[]); mv = _J_MID.get(dc,[]); gv = _J_GOOD.get(dc,[])
+        bv = _J_BAD.get(dc, []); mv = _J_MID.get(dc, []); gv = _J_GOOD.get(dc, [])
         bad_n  = int(edf[dc].isin(bv).sum())
         mid_n  = int(edf[dc].isin(mv).sum())
         good_n = int(edf[dc].isin(gv).sum())
+        # gap across categories
+        br_g    = edf.groupby("Category").apply(lambda g: g[dc].isin(bv).sum()/max(1,len(g))*100)
+        gap_val = round(float(br_g.max() - br_g.min()), 1) if len(br_g) >= 2 else 0.0
         judge_perf.append({
-            "Judge":jname,"Color":jcolor,
-            "Bad %": round(bad_n /max(1,n_total)*100,1),
-            "Mid %": round(mid_n /max(1,n_total)*100,1),
-            "Good %":round(good_n/max(1,n_total)*100,1),
-            "Bad N": bad_n,
+            "Judge":  jname, "Color": jcolor,
+            "Bad %":  round(bad_n  / max(1, n_total) * 100, 1),
+            "Mid %":  round(mid_n  / max(1, n_total) * 100, 1),
+            "Good %": round(good_n / max(1, n_total) * 100, 1),
+            "Bad N":  bad_n, "Mid N": mid_n, "Good N": good_n,
+            "Gap %":  gap_val,
         })
 
     if judge_perf:
         jp = pd.DataFrame(judge_perf)
+
+        # Stacked bar — values are % of total records per classification bucket
         fig_jp = go.Figure()
-        fig_jp.add_trace(go.Bar(name="Bad / Fail",   x=jp["Judge"],y=jp["Bad %"], marker_color="#ef4444",text=jp["Bad %"].apply(lambda v:f"{v:.0f}%"), textposition="auto"))
-        fig_jp.add_trace(go.Bar(name="Partial / Mid",x=jp["Judge"],y=jp["Mid %"], marker_color="#f59e0b",text=jp["Mid %"].apply(lambda v:f"{v:.0f}%"), textposition="auto"))
-        fig_jp.add_trace(go.Bar(name="Good / Pass",  x=jp["Judge"],y=jp["Good %"],marker_color="#10b981",text=jp["Good %"].apply(lambda v:f"{v:.0f}%"),textposition="auto"))
+        fig_jp.add_trace(go.Bar(
+            name="Bad / Fail", x=jp["Judge"], y=jp["Bad %"],
+            marker_color="#ef4444",
+            text=jp.apply(lambda r: f"{r['Bad %']:.0f}% ({r['Bad N']})", axis=1),
+            textposition="auto"))
+        fig_jp.add_trace(go.Bar(
+            name="Partial / Mid", x=jp["Judge"], y=jp["Mid %"],
+            marker_color="#f59e0b",
+            text=jp.apply(lambda r: f"{r['Mid %']:.0f}% ({r['Mid N']})", axis=1),
+            textposition="auto"))
+        fig_jp.add_trace(go.Bar(
+            name="Good / Pass", x=jp["Judge"], y=jp["Good %"],
+            marker_color="#10b981",
+            text=jp.apply(lambda r: f"{r['Good %']:.0f}% ({r['Good N']})", axis=1),
+            textposition="auto"))
         fig_jp.update_layout(**plot_layout(
-            barmode="stack", height=360, margin=dict(l=10,r=10,t=36,b=10),
-            legend=dict(font_size=10,orientation="h",y=-0.18),
-            yaxis=dict(title="%",gridcolor="#f1f5f9",range=[0,110])))
+            barmode="stack", height=400,
+            margin=dict(l=10, r=10, t=36, b=60),
+            legend=dict(font_size=10, orientation="h", y=-0.18),
+            yaxis=dict(title="% of Total Records", gridcolor="#f1f5f9",
+                       range=[0, 110], ticksuffix="%"),
+            xaxis=dict(tickfont=dict(size=11))))
         st.plotly_chart(fig_jp, use_container_width=True)
 
-        # Gap percentage per judge shown as badges right after the stacked bar
+        # Gap % cards only — one row of 5
         st.markdown(
             '<div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;'
-            'letter-spacing:.06em;margin-bottom:8px;margin-top:4px">Gap % per Judge (Highest − Lowest Category)</div>',
+            'letter-spacing:.06em;margin:4px 0 8px">Gap % per Judge (Highest − Lowest Category Bad Rate)</div>',
             unsafe_allow_html=True)
-        gap_badge_cols = st.columns(5)
-        for idx, (dc, jname, jcolor) in enumerate(zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS)):
-            if dc not in edf.columns: continue
-            bv_g = _J_BAD.get(dc, [])
-            br_g = edf.groupby("Category").apply(lambda g: g[dc].isin(bv_g).sum()/max(1,len(g))*100)
-            gap_val = round(float(br_g.max() - br_g.min()), 1) if len(br_g) >= 2 else 0.0
+        gap_cols = st.columns(5)
+        for idx, row in jp.iterrows():
+            gap_val   = row["Gap %"]
+            jcolor    = row["Color"]
             gap_color = "#dc2626" if gap_val >= 30 else "#d97706" if gap_val >= 15 else "#16a34a"
             gap_bg    = "#fee2e2" if gap_val >= 30 else "#fef9c3" if gap_val >= 15 else "#dcfce7"
-            with gap_badge_cols[idx]:
+            risk_lbl  = "🔴 High" if gap_val >= 30 else "🟡 Medium" if gap_val >= 15 else "🟢 Low"
+            with gap_cols[idx]:
                 st.markdown(
-                    f'<div style="background:{gap_bg};border:1px solid {gap_color}40;border-radius:10px;'
-                    f'padding:12px;border-top:3px solid {jcolor};text-align:center;'
-                    f'box-shadow:0 1px 3px rgba(0,0,0,0.04)">'
-                    f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">{jname}</div>'
-                    f'<div style="font-size:22px;font-weight:800;color:{gap_color}">{gap_val:.1f}%</div>'
+                    f'<div style="background:{gap_bg};border:1px solid {gap_color}40;'
+                    f'border-radius:10px;padding:14px;border-top:3px solid {jcolor};'
+                    f'text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.04)">'
+                    f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">'
+                    f'{row["Judge"]}</div>'
+                    f'<div style="font-size:24px;font-weight:800;color:{gap_color}">{gap_val:.1f}%</div>'
                     f'<div style="font-size:10px;color:#64748b;margin-top:2px">Category Gap</div>'
-                    f'<div style="font-size:9px;color:{gap_color};font-weight:700;margin-top:4px">'
-                    f'{"🔴 High" if gap_val >= 30 else "🟡 Medium" if gap_val >= 15 else "🟢 Low"}</div>'
-                    f'</div>',
-                    unsafe_allow_html=True)
-
-        jpc = st.columns(5)
-        for i, row in jp.iterrows():
-            with jpc[i]:
-                c = row["Color"]
-                st.markdown(
-                    f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
-                    f'padding:14px;border-top:3px solid {c};text-align:center;'
-                    f'box-shadow:0 1px 3px rgba(0,0,0,0.04);margin-top:8px">'
-                    f'<div style="font-size:11px;font-weight:700;color:#0f172a;margin-bottom:8px">{row["Judge"]}</div>'
-                    f'<div style="font-size:22px;font-weight:800;color:#ef4444">{row["Bad %"]:.0f}%</div>'
-                    f'<div style="font-size:10px;color:#64748b;margin-top:2px">Bad Rate ({row["Bad N"]}/{n_total})</div>'
-                    f'<div style="background:#f1f5f9;border-radius:3px;height:6px;margin-top:8px;overflow:hidden">'
-                    f'<div style="width:{row["Good %"]:.0f}%;height:100%;background:#10b981"></div></div>'
-                    f'<div style="display:flex;justify-content:space-between;font-size:9px;color:#94a3b8;margin-top:3px">'
-                    f'<span>✓ {row["Good %"]:.0f}%</span>'
-                    f'<span>~ {row["Mid %"]:.0f}%</span>'
-                    f'<span>✗ {row["Bad %"]:.0f}%</span></div></div>',
+                    f'<div style="font-size:9px;font-weight:700;color:{gap_color};margin-top:4px">'
+                    f'{risk_lbl}</div></div>',
                     unsafe_allow_html=True)
 
     # ── PASS/FAIL PIE + CO-FAILURE HEATMAP ───────────────────────────────────
