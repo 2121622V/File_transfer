@@ -1,0 +1,307 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: ANALYSIS — 5-Judge Classification Dashboard
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "analysis":
+    page_header("📊 Analysis — Fairness Classification Dashboard",
+                "Group-level gap analysis, classification distributions, and bias pattern breakdowns across 5 judges.")
+
+    if st.session_state.eval_df is None:
+        st.warning("⬅ Complete the Evaluation step first."); st.stop()
+
+    edf = st.session_state.eval_df
+    fail_df = edf[edf["Status"]=="Fail"]
+    categories = sorted(edf["Category"].dropna().unique().tolist())
+    subtypes   = sorted(edf["Subtype"].dropna().unique().tolist())
+
+    # ── KPIs ──────────────────────────────────────────────────────────────────
+    cols = st.columns(6)
+    for col, (lbl,val), clr in zip(cols, [
+        ("Total Tests", len(edf)), ("Failed", len(fail_df)),
+        ("Failure Rate", f"{len(fail_df)/max(1,len(edf))*100:.1f}%"),
+        ("Categories", edf["Category"].nunique()),
+        ("Subtypes", edf["Subtype"].nunique()), ("Judges", 5)],
+        ["#2563eb","#ef4444","#f59e0b","#6366f1","#06b6d4","#10b981"]):
+        col.markdown(f'<div class="kpi-card" style="border-left-color:{clr};text-align:center"><div class="kpi-label">{lbl}</div><div class="kpi-value">{val}</div></div>', unsafe_allow_html=True)
+
+    _, dc = st.columns([3,1])
+    with dc:
+        green_download("⬇ Download Full Results", to_excel_bytes(edf), "bias_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_ana")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 1 — FAIRNESS GAP TABLE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    gap_group = st.selectbox("Gap Analysis Grouping", ["Subtype","Category","A_Code","Bias Type"], key="gap_grp")
+    section_label(f"FAIRNESS GAP BY {gap_group.upper()} — Bad Classification Rate (Highest − Lowest group)")
+
+    gap_rows = compute_all_gaps(edf, gap_group)
+    if gap_rows:
+        gap_df = pd.DataFrame(gap_rows).sort_values("Gap", ascending=False)
+        gap_disp = gap_df[["Judge","Gap","Highest Group","Highest Value","Lowest Group","Lowest Value"]].copy()
+        gap_disp["Gap (%)"] = (gap_disp["Gap"]*100).round(1)
+        gap_disp["Highest (%)"] = (gap_disp["Highest Value"]*100).round(1)
+        gap_disp["Lowest (%)"] = (gap_disp["Lowest Value"]*100).round(1)
+        gap_final = gap_disp[["Judge","Gap (%)","Highest Group","Highest (%)","Lowest Group","Lowest (%)"]].copy()
+
+        def style_gap(val):
+            try:
+                v = float(val)
+                if v >= 30: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+                if v >= 15: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+                return "background-color:#dcfce7;color:#16a34a"
+            except: return ""
+
+        st.dataframe(gap_final.style.applymap(style_gap, subset=["Gap (%)"]),
+                     use_container_width=True, height=fit_height(gap_final))
+        green_download("⬇ Download Gap Analysis", to_excel_bytes(gap_final), "gap_analysis.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gap")
+
+        # ── Gap Bar Chart ─────────────────────────────────────────────────────
+        st.divider()
+        section_label("GAP VISUALIZATION — ALL JUDGES")
+        fig_gap = go.Figure(go.Bar(
+            x=gap_final["Judge"], y=gap_final["Gap (%)"],
+            marker_color=[r.get("Judge Color","#94a3b8") for r in gap_rows],
+            text=gap_final["Gap (%)"].apply(lambda v: f"{v:.1f}%"), textposition="outside"))
+        fig_gap.add_hline(y=20, line_dash="dash", line_color="#f59e0b", annotation_text="20% Threshold")
+        fig_gap.update_layout(**PLOT_LAYOUT, height=380, xaxis_tickangle=-25,
+                              yaxis=dict(gridcolor="#f1f5f9", title="Gap (%)"))
+        st.plotly_chart(fig_gap, use_container_width=True)
+    else:
+        st.info("Not enough groups to compute gaps.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — CLASSIFICATION DISTRIBUTION PER JUDGE (stacked bars by Subtype)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("CLASSIFICATION DISTRIBUTION BY SUBTYPE")
+
+    for idx, (cc, jname, jcolor) in enumerate(zip(JUDGE_CLASS_COLS, JUDGE_NAMES, JUDGE_COLORS)):
+        if cc not in edf.columns: continue
+        good_v = JUDGE_GOOD_VALS.get(cc,[]); mid_v = JUDGE_MID_VALS.get(cc,[]); bad_v = JUDGE_BAD_VALS.get(cc,[])
+        all_vals = good_v + mid_v + bad_v
+
+        st.markdown(f"**{jname}**")
+        cross = pd.crosstab(edf["Subtype"], edf[cc], normalize="index").reindex(columns=all_vals, fill_value=0)*100
+        fig = go.Figure()
+        for v in all_vals:
+            if v not in cross.columns: continue
+            c = "#16a34a" if v in good_v else "#ef4444" if v in bad_v else "#f59e0b"
+            fig.add_trace(go.Bar(name=v, x=cross.index, y=cross[v], marker_color=c))
+        fig.update_layout(**PLOT_LAYOUT, barmode="stack", height=320,
+                          legend=dict(font_size=9, orientation="h", y=-0.25),
+                          xaxis_tickangle=-35, yaxis=dict(title="%", gridcolor="#f1f5f9"))
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — FAILURE RATE BY CATEGORY + PASS/FAIL PIE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        section_label("FAILURE RATE BY CATEGORY")
+        cf = edf.groupby("Category").apply(lambda x: (x["Status"]=="Fail").sum()/max(1,len(x))).reset_index(name="rate")
+        cf["short"] = cf["Category"].str.split(" ").str[0]
+        fig2 = go.Figure(go.Bar(
+            x=cf["rate"], y=cf["short"], orientation="h",
+            marker_color=cf["rate"].apply(lambda v: "#ef4444" if v>=0.4 else "#f59e0b" if v>=0.2 else "#16a34a"),
+            text=cf["rate"].apply(lambda v: f"{v*100:.0f}%"), textposition="outside"))
+        fig2.add_vline(x=0.2, line_dash="dash", line_color="#f59e0b", annotation_text="20%")
+        fig2.update_layout(**PLOT_LAYOUT, height=max(300, len(cf)*30+60), xaxis=dict(range=[0,1.2], gridcolor="#f1f5f9"))
+        st.plotly_chart(fig2, use_container_width=True)
+
+    with c2:
+        section_label("PASS / FAIL DISTRIBUTION")
+        fp = go.Figure(go.Pie(
+            labels=["Pass","Fail"], values=[len(edf)-len(fail_df), len(fail_df)],
+            hole=0.55, marker=dict(colors=["#10b981","#ef4444"]),
+            textinfo="label+percent", textfont_size=12))
+        fp.update_layout(**PLOT_LAYOUT, height=300, showlegend=False)
+        st.plotly_chart(fp, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 4 — BAD RATE HEATMAP: CATEGORY × JUDGE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("CATEGORY × JUDGE BAD-CLASSIFICATION RATE HEATMAP")
+    st.caption("Each cell shows the % of records in that category where the judge returned a bad classification.")
+
+    hd = []
+    for cat in categories:
+        cd = edf[edf["Category"]==cat]
+        row_data = {"Category": cat}
+        for cc, jname in zip(JUDGE_CLASS_COLS, JUDGE_NAMES):
+            if cc in cd.columns:
+                bad = JUDGE_BAD_VALS.get(cc,[])
+                row_data[jname] = round(cd[cc].isin(bad).sum()/max(1,len(cd))*100, 1)
+            else:
+                row_data[jname] = 0.0
+        hd.append(row_data)
+    hdf = pd.DataFrame(hd).set_index("Category")
+
+    if not hdf.empty:
+        fh = go.Figure(go.Heatmap(
+            z=hdf.values, x=hdf.columns, y=hdf.index,
+            colorscale=[[0,"#f0fdf4"],[0.15,"#fefce8"],[0.3,"#fef2f2"],[1,"#ef4444"]],
+            text=hdf.values, texttemplate="%{text}%",
+            textfont=dict(size=11, color="#0f172a"), zmin=0, zmax=100))
+        fh.update_layout(**PLOT_LAYOUT, height=max(280, len(categories)*35+80),
+                         xaxis=dict(side="top"), yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fh, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — CATEGORY RADAR (bad rate per judge)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    c3, c4 = st.columns(2)
+    with c3:
+        section_label("CATEGORY RADAR — BAD RATE PER JUDGE")
+        sel_cat = st.selectbox("Category", categories, key="ana_r")
+        cd = edf[edf["Category"]==sel_cat]
+        if not cd.empty:
+            vals = []
+            for cc in JUDGE_CLASS_COLS:
+                bad = JUDGE_BAD_VALS.get(cc,[])
+                vals.append(cd[cc].isin(bad).sum()/max(1,len(cd))*100 if cc in cd.columns else 0)
+            theta = [jn[:12] for jn in JUDGE_NAMES]
+            theta_cyc = theta + [theta[0]]; vals_cyc = vals + [vals[0]]
+            fr = go.Figure(go.Scatterpolar(
+                r=vals_cyc, theta=theta_cyc, fill="toself",
+                fillcolor="rgba(239,68,68,0.1)", line=dict(color="#ef4444", width=2)))
+            fr.update_layout(
+                polar=dict(radialaxis=dict(visible=True, range=[0,100], gridcolor="#e2e8f0", ticksuffix="%"),
+                           angularaxis=dict(gridcolor="#e2e8f0")),
+                paper_bgcolor="white", font=dict(color="#334155", size=10),
+                height=360, margin=dict(l=40,r=40,t=20,b=20))
+            st.plotly_chart(fr, use_container_width=True)
+
+    with c4:
+        section_label("TOP HIGH-RISK SUBTYPES")
+        # Compute overall bad rate per subtype (any judge bad = bad for that row)
+        sub_risk = edf.groupby("Subtype").apply(
+            lambda g: (g["Status"]=="Fail").sum()/max(1,len(g))*100
+        ).sort_values(ascending=False).head(10)
+        if not sub_risk.empty:
+            f4 = go.Figure(go.Bar(
+                x=sub_risk.values, y=sub_risk.index, orientation="h",
+                marker_color=[("#ef4444" if v>=40 else "#f59e0b" if v>=20 else "#16a34a") for v in sub_risk.values],
+                text=[f"{v:.0f}%" for v in sub_risk.values], textposition="outside"))
+            f4.add_vline(x=20, line_dash="dash", line_color="#f59e0b")
+            f4.update_layout(**PLOT_LAYOUT, height=360, xaxis=dict(range=[0,110], gridcolor="#f1f5f9", title="Fail Rate %"))
+            st.plotly_chart(f4, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 6 — PER-JUDGE BAD RATE BY SUBTYPE (detailed breakdown)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("PER-JUDGE BAD CLASSIFICATION RATE BY SUBTYPE")
+    st.caption("Shows what % of each subtype's records received a bad classification from each judge.")
+
+    sub_judge_data = []
+    for sub in subtypes:
+        sd = edf[edf["Subtype"]==sub]
+        row_data = {"Subtype": sub, "Total": len(sd), "Fail Rate": round((sd["Status"]=="Fail").sum()/max(1,len(sd))*100, 1)}
+        for cc, jname in zip(JUDGE_CLASS_COLS, JUDGE_NAMES):
+            bad = JUDGE_BAD_VALS.get(cc,[])
+            row_data[jname] = round(sd[cc].isin(bad).sum()/max(1,len(sd))*100, 1) if cc in sd.columns else 0.0
+        sub_judge_data.append(row_data)
+    sub_judge_df = pd.DataFrame(sub_judge_data).sort_values("Fail Rate", ascending=False)
+
+    def cc_pct(val):
+        try:
+            v = float(val)
+            if v >= 40: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+            if v >= 20: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+            return "background-color:#dcfce7;color:#16a34a"
+        except: return ""
+
+    judge_pct_cols = [jn for jn in JUDGE_NAMES if jn in sub_judge_df.columns]
+    st.dataframe(
+        sub_judge_df.style.applymap(cc_pct, subset=["Fail Rate"] + judge_pct_cols),
+        use_container_width=True, height=fit_height(sub_judge_df))
+
+    _, sr_dl = st.columns([3,1])
+    with sr_dl:
+        green_download("⬇ Download Subtype Risk", to_excel_bytes(sub_judge_df), "subtype_risk.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_sub_risk")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 7 — CLASSIFICATION CO-OCCURRENCE (which judges fail together?)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("JUDGE CO-OCCURRENCE — WHICH JUDGES FAIL TOGETHER?")
+    st.caption("Each cell shows how often two judges BOTH give a bad classification on the same record.")
+
+    if len(fail_df) > 0:
+        # Build binary matrix: 1 if judge gave bad classification
+        co_data = pd.DataFrame()
+        for cc, jname in zip(JUDGE_CLASS_COLS, JUDGE_NAMES):
+            bad = JUDGE_BAD_VALS.get(cc,[])
+            co_data[jname] = edf[cc].isin(bad).astype(int) if cc in edf.columns else 0
+        # Correlation of bad classifications
+        co_matrix = co_data.corr().round(2)
+
+        fig_co = go.Figure(go.Heatmap(
+            z=co_matrix.values, x=co_matrix.columns, y=co_matrix.index,
+            colorscale=[[0,"#f0fdf4"],[0.3,"#fefce8"],[0.6,"#fef2f2"],[1,"#ef4444"]],
+            text=co_matrix.values, texttemplate="%{text}",
+            textfont=dict(size=12, color="#0f172a"), zmin=0, zmax=1))
+        fig_co.update_layout(**PLOT_LAYOUT, height=350,
+                             xaxis=dict(side="top"), yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fig_co, use_container_width=True)
+    else:
+        st.success("No failures to analyze.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 8 — FULL RESULTS TABLE + DOWNLOADS
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    ft_h, ft_dl = st.columns([3,1])
+    with ft_h: section_label("FULL RESULTS TABLE")
+    with ft_dl:
+        green_download("⬇ Download", to_excel_bytes(edf), "full_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_full_tbl")
+
+    full_disp = [c for c in ["id","A_Code","Category","Subtype","Bias Type","Status","Classification"]
+                 + JUDGE_CLASS_COLS + JUDGE_REASON_COLS
+                 + ["original_question","Augmented Storyline","expected_output","Actual Output"]
+                 if c in edf.columns]
+    cls_subset = [c for c in JUDGE_CLASS_COLS if c in edf.columns]
+    st.dataframe(
+        edf[full_disp].style
+        .applymap(style_status, subset=["Status"])
+        .applymap(style_cls, subset=cls_subset),
+        use_container_width=True, height=fit_height(edf))
+
+    # ── DOWNLOAD ALL ──────────────────────────────────────────────────────────
+    st.divider()
+    section_label("DOWNLOAD ALL REPORTS")
+    st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;">', unsafe_allow_html=True)
+    dl_cols = st.columns(4)
+    with dl_cols[0]:
+        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">📊</div><div style="font-size:12px;font-weight:700;margin:4px 0">Full Results</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">All records, all classifications</div></div>', unsafe_allow_html=True)
+        green_download("⬇ bias_results.xlsx", to_excel_bytes(edf), "bias_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_bias")
+    with dl_cols[1]:
+        st.markdown(f'<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">❌</div><div style="font-size:12px;font-weight:700;margin:4px 0">Failures Only</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">{len(fail_df)} failed records</div></div>', unsafe_allow_html=True)
+        green_download("⬇ failures.xlsx", to_excel_bytes(fail_df), "failures.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_fail")
+    with dl_cols[2]:
+        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">📈</div><div style="font-size:12px;font-weight:700;margin:4px 0">Gap Analysis</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Per-judge fairness gaps</div></div>', unsafe_allow_html=True)
+        if gap_rows:
+            green_download("⬇ gap_analysis.xlsx", to_excel_bytes(gap_final), "gap_analysis.xlsx",
+                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_gap")
+    with dl_cols[3]:
+        cat_summary = edf.groupby("Category").agg(
+            Total=("id","count"), Failed=("Status", lambda x:(x=="Fail").sum())).reset_index()
+        cat_summary["Failure Rate"] = (cat_summary["Failed"]/cat_summary["Total"]).round(3)
+        for cc, jname in zip(JUDGE_CLASS_COLS, JUDGE_NAMES):
+            bad = JUDGE_BAD_VALS.get(cc,[])
+            if cc in edf.columns:
+                cat_summary[f"{jname} Bad%"] = edf.groupby("Category").apply(
+                    lambda g: round(g[cc].isin(bad).sum()/max(1,len(g))*100, 1)).values
+        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">🗂</div><div style="font-size:12px;font-weight:700;margin:4px 0">Category Summary</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Failure rates + per-judge bad rates</div></div>', unsafe_allow_html=True)
+        green_download("⬇ category_summary.xlsx", to_excel_bytes(cat_summary), "category_summary.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_cat")
+    st.markdown('</div>', unsafe_allow_html=True)
