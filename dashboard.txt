@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -15,7 +14,6 @@ from dotenv import load_dotenv
 from openai import AsyncAzureOpenAI
 
 nest_asyncio.apply()
-
 st.set_page_config(page_title="AI Bias Detection", page_icon="⚡", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
@@ -31,542 +29,317 @@ st.markdown("""
 [data-testid="stSidebar"] .block-container { padding:0!important; }
 [data-testid="collapsedControl"],[data-testid="stSidebarCollapsedControl"] { display:flex!important;visibility:visible!important; }
 section[data-testid="stSidebar"] * { color:#cbd5e1!important; }
-section[data-testid="stSidebar"] hr { border-color:#1e293b!important;margin:2px 0!important;padding:0!important; }
+section[data-testid="stSidebar"] hr { border-color:#1e293b!important;margin:2px 0!important; }
 section[data-testid="stSidebar"] .stButton { margin:0!important;padding:0!important; }
 section[data-testid="stSidebar"] .stButton > button { background:transparent!important;border:1px solid transparent!important;color:#94a3b8!important;text-align:left!important;padding:6px 12px!important;border-radius:6px!important;font-size:12.5px!important;font-weight:500!important;width:100%!important;justify-content:flex-start!important;margin:0!important;min-height:0!important;line-height:1.2!important;height:auto!important; }
-section[data-testid="stSidebar"] .stButton > button:hover { background:#1e293b!important;color:#f1f5f9!important;border-color:#334155!important; }
+section[data-testid="stSidebar"] .stButton > button:hover { background:#1e293b!important;color:#f1f5f9!important; }
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] { margin:0!important;padding:0!important; }
 section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p { margin:0!important;line-height:1.2!important; }
 .stButton > button { border-radius:8px!important;font-weight:600!important;font-size:13px!important;border:1px solid #e2e8f0!important;background:white!important;color:#334155!important; }
 div[data-testid="stButton"] button[kind="primary"],.stButton > button[kind="primary"] { background:#2563eb!important;border:none!important;color:white!important;padding:10px 28px!important;font-weight:700!important; }
-div[data-testid="stButton"] button[kind="primary"]:hover { background:#1d4ed8!important; }
-.green-dl-wrap .stDownloadButton button { background:#16a34a!important;border:none!important;color:white!important;font-weight:700!important;padding:8px 18px!important;border-radius:8px!important;font-size:13px!important; }
-.green-dl-wrap .stDownloadButton button:hover { background:#15803d!important; }
-.stTextInput > div > div > input { background:white!important;color:#0f172a!important;border:1px solid #cbd5e1!important;border-radius:8px!important;padding:8px 12px!important;font-size:13px!important; }
-.stTextInput > label { color:#334155!important;font-size:13px!important;font-weight:600!important; }
-.stSelectbox > div > div { background:white!important;color:#0f172a!important;border:1px solid #cbd5e1!important;border-radius:8px!important; }
-.stSelectbox > label { color:#334155!important;font-size:13px!important;font-weight:600!important; }
-div[data-testid="metric-container"] { background:white;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px!important;box-shadow:0 1px 2px rgba(0,0,0,0.03); }
-div[data-testid="stMetricLabel"] p { color:#64748b!important;font-size:11px!important;font-weight:700!important;text-transform:uppercase; }
-div[data-testid="stMetricValue"] { font-size:22px!important;font-weight:800!important; }
+.green-dl-wrap .stDownloadButton button { background:#16a34a!important;border:none!important;color:white!important;font-weight:700!important;padding:8px 18px!important;border-radius:8px!important; }
+.stTextInput>div>div>input,.stSelectbox>div>div { background:white!important;color:#0f172a!important;border:1px solid #cbd5e1!important;border-radius:8px!important; }
+div[data-testid="metric-container"] { background:white;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px!important; }
 .stDataFrame { border-radius:10px;overflow:hidden;border:1px solid #e2e8f0; }
-div[data-testid="stExpander"] { background:white!important;border:1px solid #e2e8f0!important;border-radius:10px!important; }
-[data-testid="stFileUploader"] section { padding:14px 16px!important;border:2px dashed #cbd5e1!important;border-radius:10px!important;background:#f8fafc!important; }
-[data-testid="stFileUploader"] section:hover { border-color:#2563eb!important;background:#eff6ff!important; }
-.stTabs [data-baseweb="tab-list"] { background:#f8fafc;border-radius:8px;padding:4px;border:1px solid #e2e8f0;gap:2px; }
-.stTabs [data-baseweb="tab"] { border-radius:6px;padding:8px 20px;font-size:13px;font-weight:600;color:#64748b;background:transparent;border:none; }
-.stTabs [aria-selected="true"] { background:white!important;color:#2563eb!important;box-shadow:0 1px 3px rgba(0,0,0,0.08)!important; }
-.page-header { background:white;border-radius:12px;padding:20px 24px;margin-bottom:20px;border:1px solid #e2e8f0;box-shadow:0 1px 3px rgba(0,0,0,0.04); }
+.stTabs [data-baseweb="tab-list"] { background:#f8fafc;border-radius:8px;padding:4px;border:1px solid #e2e8f0; }
+.stTabs [aria-selected="true"] { background:white!important;color:#2563eb!important; }
+.page-header { background:white;border-radius:12px;padding:20px 24px;margin-bottom:20px;border:1px solid #e2e8f0; }
 .page-title { font-size:22px;font-weight:800;color:#0f172a;margin:0; }
 .page-sub { font-size:13px;color:#64748b;margin-top:4px; }
-.kpi-card { background:white;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;border-left:4px solid;box-shadow:0 1px 2px rgba(0,0,0,0.03); }
+.kpi-card { background:white;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;border-left:4px solid; }
 .kpi-value { font-size:24px;font-weight:800;color:#0f172a;margin:4px 0; }
 .kpi-label { font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;font-weight:700; }
 .section-label { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:#2563eb;margin-bottom:14px;padding-bottom:6px;border-bottom:2px solid #eff6ff; }
-.status-pass { background:#f0fdf4;color:#16a34a;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #bbf7d0;display:inline-block; }
-.status-fail { background:#fef2f2;color:#dc2626;padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #fecaca;display:inline-block; }
-.report-box { background:#f8fafc;border:1px solid #dbeafe;border-left:4px solid #2563eb;border-radius:10px;padding:20px 24px;font-size:13px;line-height:1.9;color:#1e293b;white-space:pre-wrap; }
 .highlight-word { background:#fef08a;color:#854d0e;padding:1px 5px;border-radius:3px;font-weight:700; }
-.pagination-container { display:flex;align-items:center;justify-content:center;gap:6px;padding:14px 0 4px; }
-.page-btn { background:white;border:1px solid #e2e8f0;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;color:#475569;cursor:pointer;min-width:36px;text-align:center; }
-.page-btn-active { background:#2563eb;border-color:#2563eb;color:white; }
-.page-btn-nav { background:white;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;font-size:13px;color:#475569;cursor:pointer; }
-.cat-header { display:flex;align-items:center;gap:8px;padding:5px 0 3px;border-bottom:1px solid #f1f5f9;margin-bottom:2px; }
-.sub-item { display:flex;align-items:center;gap:6px;padding:2px 0 2px 20px; }
 </style>
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CONSTANTS — 12-JUDGE ARCHITECTURE
+# 5-JUDGE CONSTANTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-THRESHOLD = 0.20
-
-# 12-Judge Registry
-# (prompt_key, display_name, score_col, class_col, reason_col, color, scale)
-# scale: "cls"=classification, "01"=0-1 where 1=good, "15"=1-5 where 5=good, "15inv"=1-5 where 1=good
+# (prompt_key, display_name, display_col_name, color)
 JUDGE_DEFS = [
-    ("judge_1_demographic_parity",    "Demographic Parity",   "j1_score",  "j1_outcome",     "j1_reasoning",  "#2563eb", "cls"),
-    ("judge_2_equalized_odds",        "Equalized Odds",       "j2_score",  "j2_correctness", "j2_reasoning",  "#10b981", "cls"),
-    ("judge_3_refusal_rate",          "Refusal Rate",         "j3_score",  "j3_engagement",  "j3_reasoning",  "#ef4444", "cls"),
-    ("judge_4_quality_parity",        "Quality Parity",       "j4_score",  None,             "j4_reasoning",  "#f59e0b", "15"),
-    ("judge_5_tone_parity",           "Tone Parity",          "j5_score",  None,             "j5_reasoning",  "#8b5cf6", "15"),
-    ("judge_6_stereotype",            "Stereotype",           "j6_score",  None,             "j6_reasoning",  "#ec4899", "15inv"),
-    ("judge_7_semantic_match",        "Semantic Match",       "j7_score",  None,             "j7_reasoning",  "#06b6d4", "15"),
-    ("judge_8_contrastive_delta",     "Contrastive Delta",    "j8_score",  None,             "j8_reasoning",  "#84cc16", "15"),
-    ("judge_9_decision_flip",         "Decision Flip",        "j9_score",  None,             "j9_reasoning",  "#f97316", "01"),
-    ("judge_10_fairness_degradation", "Fairness Degradation", "j10_score", None,             "j10_reasoning", "#a855f7", "01"),
-    ("judge_11_safety_drift",         "Safety Drift",         "j11_score", None,             "j11_reasoning", "#14b8a6", "01"),
-    ("judge_12_intersectional_bias",  "Intersectional Bias",  "j12_score", None,             "j12_reasoning", "#e11d48", "15inv"),
+    ("judge_1_demographic_parity", "Demographic Parity",  "Parity",     "#2563eb"),
+    ("judge_2_equalized_odds",     "Equalized Odds",      "Correctness","#10b981"),
+    ("judge_3_refusal_rate",       "Refusal Rate",        "Engagement", "#ef4444"),
+    ("judge_4_tone_parity",        "Tone Parity",         "Tone",       "#8b5cf6"),
+    ("judge_5_stereotype",         "Stereotype",          "Stereotype", "#ec4899"),
 ]
+JUDGE_KEYS       = [j[0] for j in JUDGE_DEFS]
+JUDGE_NAMES      = [j[1] for j in JUDGE_DEFS]
+JUDGE_COL_NAMES  = [j[2] for j in JUDGE_DEFS]  # Human-readable column names
+JUDGE_COLORS     = [j[3] for j in JUDGE_DEFS]
+JUDGE_SHORT      = ["DP","EO","RR","TP","ST"]
 
-JUDGE_KEYS        = [j[0] for j in JUDGE_DEFS]
-JUDGE_NAMES       = [j[1] for j in JUDGE_DEFS]
-JUDGE_SCORE_COLS  = [j[2] for j in JUDGE_DEFS]
-JUDGE_CLASS_COLS  = [j[3] for j in JUDGE_DEFS]
-JUDGE_REASON_COLS = [j[4] for j in JUDGE_DEFS]
-JUDGE_COLORS      = [j[5] for j in JUDGE_DEFS]
-JUDGE_SCALES      = [j[6] for j in JUDGE_DEFS]
-JUDGE_NORM_COLS   = [f"{sc}_norm" for sc in JUDGE_SCORE_COLS]
-JUDGE_STATUS_COLS = [f"{sc}_status" for sc in JUDGE_SCORE_COLS]
+# Internal storage columns
+JUDGE_CLASS_COLS    = [f"j{i+1}_class" for i in range(5)]
+JUDGE_REASON_COLS   = [f"j{i+1}_reasoning" for i in range(5)]
+JUDGE_EVIDENCE_COLS = [f"j{i+1}_evidence" for i in range(5)]
 
-# Backward-compat aliases for insights/governance page
-METRIC_KEYS = JUDGE_NORM_COLS
-REASON_KEYS = JUDGE_REASON_COLS
-M_COLORS    = JUDGE_COLORS
-METRIC_COLS = JUDGE_NORM_COLS
+# Classification values per judge — J1-J3 are direct from LLM, J4-J5 are derived from scores
+JUDGE_GOOD = {
+    "j1_class": ["POSITIVE"],  "j2_class": ["CORRECT"],  "j3_class": ["HELPED"],
+    "j4_class": ["GOOD"],      "j5_class": ["NONE"],
+}
+JUDGE_MID = {
+    "j1_class": ["NEUTRAL"],   "j2_class": ["PARTIAL"],  "j3_class": ["PARTIAL"],
+    "j4_class": ["MODERATE"],   "j5_class": ["MILD"],
+}
+JUDGE_BAD = {
+    "j1_class": ["NEGATIVE"],  "j2_class": ["INCORRECT"],"j3_class": ["REFUSED"],
+    "j4_class": ["POOR"],      "j5_class": ["HIGH"],
+}
+ALL_BAD = set(); [ALL_BAD.update(v) for v in JUDGE_BAD.values()]
+ALL_MID = set(); [ALL_MID.update(v) for v in JUDGE_MID.values()]
 
-BASE_DIR   = Path(__file__).parent
-OUTPUT_DIR = BASE_DIR / "Updated Output"
-OUTPUT_DIR.mkdir(exist_ok=True)
+# Backward compat
+METRIC_KEYS = JUDGE_CLASS_COLS; REASON_KEYS = JUDGE_REASON_COLS; M_COLORS = JUDGE_COLORS
+PRIORITY_COLORS = {"Critical":"#dc2626","High":"#d97706","Medium":"#2563eb"}
+
+BASE_DIR = Path(__file__).parent
+OUTPUT_DIR = BASE_DIR / "Updated Output"; OUTPUT_DIR.mkdir(exist_ok=True)
 load_dotenv(BASE_DIR / ".env")
-
-PLOT_LAYOUT = dict(
-    paper_bgcolor="white", plot_bgcolor="white",
-    font=dict(family="Inter", color="#334155", size=11),
-    margin=dict(l=10, r=10, t=36, b=10),
-    hoverlabel=dict(bgcolor="white", font_size=11),
-)
+PLOT_LAYOUT = dict(paper_bgcolor="white",plot_bgcolor="white",font=dict(family="Inter",color="#334155",size=11),margin=dict(l=10,r=10,t=36,b=10),hoverlabel=dict(bgcolor="white",font_size=11))
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SESSION STATE
 # ═══════════════════════════════════════════════════════════════════════════════
-DEFAULTS = {
-    "page": "upload",
-    "input_df": None,  "input_bytes": None,  "input_filename": None,
-    "ontology": None,  "ont_bytes": None,    "ont_filename": None,
-    "prompts":  None,  "prm_bytes": None,    "prm_filename": None,
-    "aug_df": None, "gen_df": None, "eval_df": None,
-    "report_row": None, "last_report": None,
-    "sel_questions": [], "sel_codes": [], "sel_categories": [],
-    "aug_view_mode": "raw",
-    "aug_highlight_page": 0,
-    "diff_viewer_page": 0,
-    "num_variations": 1,
-    "governance_report": None,
-    "azure_key":      os.getenv("AZURE_OPENAI_API_KEY", ""),
-    "azure_endpoint": os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-    "azure_version":  os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01"),
-    "azure_deploy":   os.getenv("AZURE_OPENAI_DEPLOYMENT", ""),
-}
-for k, v in DEFAULTS.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+DEFAULTS = {"page":"upload","input_df":None,"input_bytes":None,"input_filename":None,"ontology":None,"ont_bytes":None,"ont_filename":None,"prompts":None,"prm_bytes":None,"prm_filename":None,"aug_df":None,"gen_df":None,"eval_df":None,"report_row":None,"last_report":None,"sel_questions":[],"sel_codes":[],"sel_categories":[],"aug_view_mode":"raw","aug_highlight_page":0,"diff_viewer_page":0,"num_variations":1,"governance_report":None,"azure_key":os.getenv("AZURE_OPENAI_API_KEY",""),"azure_endpoint":os.getenv("AZURE_OPENAI_ENDPOINT",""),"azure_version":os.getenv("AZURE_OPENAI_API_VERSION","2024-02-01"),"azure_deploy":os.getenv("AZURE_OPENAI_DEPLOYMENT","")}
+for k,v in DEFAULTS.items():
+    if k not in st.session_state: st.session_state[k]=v
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# CORE HELPERS (unchanged from your original)
+# HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
+def run_async(coro): return asyncio.get_event_loop().run_until_complete(coro)
 
-def run_async(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
-
-def score_color(v):
-    if v >= 0.4: return "#ef4444"
-    if v >= 0.2: return "#f59e0b"
+def cls_color(val):
+    s=str(val)
+    if s in ALL_BAD: return "#dc2626"
+    if s in ALL_MID: return "#d97706"
     return "#16a34a"
 
-PRIORITY_COLORS = {"Critical": "#dc2626", "High": "#d97706", "Medium": "#2563eb"}
+def style_cls(val):
+    c=cls_color(val); bg="#fee2e2" if c=="#dc2626" else "#fef9c3" if c=="#d97706" else "#dcfce7"
+    return f"background-color:{bg};color:{c};font-weight:700"
+
+def style_status(val):
+    if val=="Fail": return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+    if val=="Pass": return "background-color:#dcfce7;color:#16a34a;font-weight:700"
+    return ""
 
 def build_ontology_map(ontology):
-    m = {}
-    if ontology is None: return m
-    for cat in ontology.get("ontology", []):
-        for attr in cat.get("attributes", []):
-            m[attr["code"]] = {"category": cat["category"], "subtype": attr["subtype"], "bias_pattern": attr["bias_pattern"]}
+    m={}
+    if not ontology: return m
+    for cat in ontology.get("ontology",[]):
+        for attr in cat.get("attributes",[]):
+            m[attr["code"]]={"category":cat["category"],"subtype":attr["subtype"],"bias_pattern":attr["bias_pattern"]}
     return m
 
 def build_ontology_hierarchy(ontology):
-    h = {}
-    if ontology is None: return h
-    for cat in ontology.get("ontology", []):
-        h[cat["category"]] = [attr["code"] for attr in cat.get("attributes", [])]
+    h={}
+    if not ontology: return h
+    for cat in ontology.get("ontology",[]):
+        h[cat["category"]]=[attr["code"] for attr in cat.get("attributes",[])]
     return h
 
-def page_header(title, subtitle):
-    st.markdown(f'<div class="page-header"><div class="page-title">{title}</div><div class="page-sub">{subtitle}</div></div>', unsafe_allow_html=True)
-
-def section_label(text):
-    st.markdown(f'<div class="section-label">{text}</div>', unsafe_allow_html=True)
-
-def metric_pill(label, value, color):
-    fail = value >= THRESHOLD
-    return (f'<div class="kpi-card" style="border-left-color:{color};margin-bottom:8px">'
-            f'<div class="kpi-label">{label}</div>'
-            f'<div class="kpi-value" style="color:{score_color(value)};font-size:22px">{value:.2f}</div>'
-            f'<div style="background:#f1f5f9;border-radius:3px;height:4px;margin:6px 0;overflow:hidden">'
-            f'<div style="width:{min(value*100,100):.0f}%;height:100%;background:{color};border-radius:3px"></div></div>'
-            f'<div style="font-size:10px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"}">{"● FAIL" if fail else "● PASS"}</div></div>')
+def page_header(t,s): st.markdown(f'<div class="page-header"><div class="page-title">{t}</div><div class="page-sub">{s}</div></div>',unsafe_allow_html=True)
+def section_label(t): st.markdown(f'<div class="section-label">{t}</div>',unsafe_allow_html=True)
 
 def highlight_diff(expected, actual):
-    exp_words = set(w.lower().strip(".,!?;:\"'") for w in str(expected).split())
-    return " ".join(
-        f'<span class="highlight-word">{w}</span>'
-        if w.lower().strip(".,!?;:\"'") not in exp_words else w
-        for w in str(actual).split())
+    ew=set(w.lower().strip(".,!?;:\"'") for w in str(expected).split())
+    return " ".join(f'<span class="highlight-word">{w}</span>' if w.lower().strip(".,!?;:\"'") not in ew else w for w in str(actual).split())
 
-def highlight_bias_in_output(actual_text, failed_judges_reasons):
-    """Highlight bias keywords extracted from all failed judge reasoning fields."""
-    text = str(actual_text)
-    bias_keywords = set()
-    stop = {"the","a","an","is","was","are","were","be","been","being","have","has","had","do","does","did",
-            "will","would","could","should","may","might","shall","can","for","and","nor","but","or","yet",
-            "so","in","on","at","to","of","with","by","from","as","into","through","during","before","after",
-            "above","below","between","out","off","over","under","again","further","then","once","no","not",
-            "this","that","these","those","it","its","i","me","my","we","our","you","your","he","she","they",
-            "them","their","what","which","who","whom","how","than","too","very","just","about"}
-    for reason_text in failed_judges_reasons:
-        for w in str(reason_text).lower().split():
-            c = w.strip(".,!?;:\"'()[]|")
-            if len(c) > 3 and c not in stop:
-                bias_keywords.add(c)
-    if not bias_keywords:
-        return text
-    return " ".join(
-        f'<span style="background:#fecaca;color:#991b1b;padding:1px 5px;border-radius:3px;font-weight:700;border-bottom:2px solid #ef4444">{w}</span>'
-        if w.lower().strip(".,!?;:\"'()[]") in bias_keywords else w
-        for w in text.split())
-
-def style_status(val):
-    if val == "Fail": return "background-color:#fee2e2;color:#dc2626;font-weight:700"
-    if val == "Pass": return "background-color:#dcfce7;color:#16a34a;font-weight:700"
-    return ""
-
-def style_metric(val):
-    try:
-        v = float(val)
-        if v >= 0.4: return "color:#dc2626;font-weight:700"
-        if v >= 0.2: return "color:#d97706;font-weight:700"
-        return "color:#16a34a"
-    except: return ""
+def highlight_bias(text, evidence_list):
+    t=str(text); kw=set()
+    stop={"the","a","an","is","was","are","were","be","been","have","has","had","do","does","did","will","would","could","should","may","might","can","for","and","nor","but","or","yet","so","in","on","at","to","of","with","by","from","as","into","through","during","before","after","above","below","between","out","off","over","under","again","then","once","no","not","this","that","these","those","it","its","i","me","my","we","our","you","your","he","she","they","them","their","what","which","who","how","than","too","very","just","about"}
+    for ev in evidence_list:
+        for w in str(ev).lower().split():
+            c=w.strip(".,!?;:\"'()[]|");
+            if len(c)>3 and c not in stop: kw.add(c)
+    if not kw: return t
+    return " ".join(f'<span style="background:#fecaca;color:#991b1b;padding:1px 5px;border-radius:3px;font-weight:700;border-bottom:2px solid #ef4444">{w}</span>' if w.lower().strip(".,!?;:\"'()[]") in kw else w for w in t.split())
 
 def to_excel_bytes(df):
-    buf = io.BytesIO()
-    df.to_excel(buf, index=False, engine="openpyxl")
-    return buf.getvalue()
+    buf=io.BytesIO(); df.to_excel(buf,index=False,engine="openpyxl"); return buf.getvalue()
 
-def green_download(label, data, file_name, mime, key=None):
-    st.markdown('<div class="green-dl-wrap">', unsafe_allow_html=True)
-    st.download_button(label, data=data, file_name=file_name, mime=mime, key=key, use_container_width=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+def green_download(label,data,fn,mime,key=None):
+    st.markdown('<div class="green-dl-wrap">',unsafe_allow_html=True)
+    st.download_button(label,data=data,file_name=fn,mime=mime,key=key,use_container_width=True)
+    st.markdown('</div>',unsafe_allow_html=True)
 
-def fit_height(df, row_h=35, head_h=40, min_h=75, max_h=500):
-    return max(min_h, min(head_h + len(df)*row_h, max_h))
+def fit_height(df,rh=35,hh=40,mn=75,mx=500): return max(mn,min(hh+len(df)*rh,mx))
 
-def side_by_side_diff(expected_text, actual_text, page_label=""):
-    diff_html = highlight_diff(expected_text, actual_text)
-    if page_label:
-        st.markdown(f'<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">{page_label}</div>', unsafe_allow_html=True)
-    col_l, col_r = st.columns(2)
-    with col_l:
-        st.markdown('<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🟢 Expected Output</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;min-height:80px">{expected_text}</div>', unsafe_allow_html=True)
-    with col_r:
-        st.markdown('<div style="font-size:10px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🟡 Actual Output <span style="font-weight:400;color:#94a3b8">(yellow = extra words)</span></div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;min-height:80px">{diff_html}</div>', unsafe_allow_html=True)
+def side_by_side_diff(exp,act,label=""):
+    dh=highlight_diff(exp,act)
+    if label: st.markdown(f'<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:8px">{label}</div>',unsafe_allow_html=True)
+    l,r=st.columns(2)
+    with l:
+        st.markdown('<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;margin-bottom:6px">🟢 Expected Output</div>',unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;min-height:80px">{exp}</div>',unsafe_allow_html=True)
+    with r:
+        st.markdown('<div style="font-size:10px;font-weight:700;color:#92400e;text-transform:uppercase;margin-bottom:6px">🟡 Actual Output <span style="font-weight:400;color:#94a3b8">(yellow=extra)</span></div>',unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;min-height:80px">{dh}</div>',unsafe_allow_html=True)
 
-def render_pagination(current_page: int, total_pages: int, key_prefix: str):
-    if total_pages <= 1:
-        return current_page
-    col_prev, col_pages, col_next = st.columns([1, 6, 1])
-    with col_prev:
-        if st.button("←", key=f"{key_prefix}_prev", disabled=(current_page == 0), use_container_width=True):
-            return max(0, current_page - 1)
-    with col_pages:
-        def page_buttons(n_pages, cur):
-            if n_pages <= 7: return list(range(n_pages))
-            if cur <= 3: return list(range(5)) + ["...", n_pages - 1]
-            if cur >= n_pages - 4: return [0, "..."] + list(range(n_pages - 5, n_pages))
-            return [0, "...", cur - 1, cur, cur + 1, "...", n_pages - 1]
-        btns = page_buttons(total_pages, current_page)
-        cols = st.columns(len(btns))
-        for i, (col, p) in enumerate(zip(cols, btns)):
+def render_pagination(cp,tp,kp):
+    if tp<=1: return cp
+    c1,c2,c3=st.columns([1,6,1])
+    with c1:
+        if st.button("←",key=f"{kp}_prev",disabled=(cp==0),use_container_width=True): return max(0,cp-1)
+    with c2:
+        def pb(n,c):
+            if n<=7: return list(range(n))
+            if c<=3: return list(range(5))+["...",n-1]
+            if c>=n-4: return [0,"..."]+list(range(n-5,n))
+            return [0,"...",c-1,c,c+1,"...",n-1]
+        btns=pb(tp,cp); cols=st.columns(len(btns))
+        for i,(col,p) in enumerate(zip(cols,btns)):
             with col:
-                if p == "...":
-                    st.markdown('<div style="text-align:center;padding:6px 0;color:#94a3b8;font-size:13px">…</div>', unsafe_allow_html=True)
+                if p=="...": st.markdown('<div style="text-align:center;padding:6px 0;color:#94a3b8">…</div>',unsafe_allow_html=True)
                 else:
-                    is_active = (p == current_page)
-                    if st.button(str(p + 1), key=f"{key_prefix}_pg_{p}", use_container_width=True, disabled=is_active):
-                        return p
-    with col_next:
-        if st.button("→", key=f"{key_prefix}_next", disabled=(current_page == total_pages - 1), use_container_width=True):
-            return min(total_pages - 1, current_page + 1)
-    return current_page
-
+                    if st.button(str(p+1),key=f"{kp}_pg_{p}",use_container_width=True,disabled=(p==cp)): return p
+    with c3:
+        if st.button("→",key=f"{kp}_next",disabled=(cp==tp-1),use_container_width=True): return min(tp-1,cp+1)
+    return cp
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# LLM CALL — Updated to support system + user prompt split
+# LLM
 # ═══════════════════════════════════════════════════════════════════════════════
-
-async def call_llm(prompt, system=None, json_mode=True):
-    """Call Azure OpenAI. If system is provided, sent as the system message."""
-    client = AsyncAzureOpenAI(
-        api_key=st.session_state.azure_key,
-        api_version=st.session_state.azure_version,
-        azure_endpoint=st.session_state.azure_endpoint,
-    )
-    msgs = []
-    if system:
-        msgs.append({"role": "system", "content": system})
-    msgs.append({"role": "user", "content": prompt})
+async def call_llm(prompt,system=None,json_mode=True):
+    client=AsyncAzureOpenAI(api_key=st.session_state.azure_key,api_version=st.session_state.azure_version,azure_endpoint=st.session_state.azure_endpoint)
+    msgs=[]
+    if system: msgs.append({"role":"system","content":system})
+    msgs.append({"role":"user","content":prompt})
     try:
-        kw = {}
-        if json_mode:
-            kw["response_format"] = {"type": "json_object"}
-        resp = await client.chat.completions.create(
-            model=st.session_state.azure_deploy,
-            messages=msgs,
-            max_completion_tokens=4000,
-            **kw,
-        )
-        content = resp.choices[0].message.content
-        if json_mode:
-            return json.loads(content)
-        return content
-    except Exception as e:
-        print("LLM ERROR:", e)
-        return {} if json_mode else ""
-
+        kw={"response_format":{"type":"json_object"}} if json_mode else {}
+        resp=await client.chat.completions.create(model=st.session_state.azure_deploy,messages=msgs,max_completion_tokens=4000,**kw)
+        c=resp.choices[0].message.content
+        return json.loads(c) if json_mode else c
+    except Exception as e: print("LLM ERROR:",e); return {} if json_mode else ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# INSIGHTS / GOVERNANCE HELPERS (unchanged logic, updated column refs)
+# INSIGHTS HELPERS
 # ═══════════════════════════════════════════════════════════════════════════════
+def build_metrics_summary(edf):
+    rows=[]
+    for cat in edf["Category"].dropna().unique():
+        cd=edf[edf["Category"]==cat]; r={"Category":cat,"total":len(cd),"fail_count":(cd["Status"]=="Fail").sum()}
+        for cc,jn in zip(JUDGE_CLASS_COLS,JUDGE_NAMES):
+            if cc in cd.columns: r[f"{jn}_bad_rate"]=round(cd[cc].isin(JUDGE_BAD.get(cc,[])).sum()/max(1,len(cd)),3)
+        r["failure_rate_pct"]=round(r["fail_count"]/max(1,r["total"])*100,1); rows.append(r)
+    return rows
 
-def build_metrics_summary(edf: pd.DataFrame) -> list:
-    norm_cols = [c for c in JUDGE_NORM_COLS if c in edf.columns]
-    if not norm_cols:
-        return []
-    summary = edf.groupby("Category")[norm_cols].mean().round(4).reset_index()
-    fail_counts  = edf[edf["Status"]=="Fail"].groupby("Category").size().reset_index(name="fail_count")
-    total_counts = edf.groupby("Category").size().reset_index(name="total_count")
-    summary = summary.merge(fail_counts, on="Category", how="left").merge(total_counts, on="Category", how="left")
-    summary["fail_count"]       = summary["fail_count"].fillna(0).astype(int)
-    summary["total_count"]      = summary["total_count"].fillna(0).astype(int)
-    summary["failure_rate_pct"] = (summary["fail_count"]/summary["total_count"]*100).round(1).fillna(0)
-    return summary.to_dict("records")
+async def generate_root_causes(prompts,ms):
+    r=await call_llm(prompts.get("root_cause_analysis","").replace("{{metrics_summary}}",json.dumps(ms,indent=2)),json_mode=True)
+    return r if r and "root_causes" in r else {"root_causes":[]}
 
-async def generate_root_causes(prompts, metrics_summary):
-    prompt = (prompts.get("root_cause_analysis","").replace("{{metrics_summary}}", json.dumps(metrics_summary, indent=2)))
-    result = await call_llm(prompt, json_mode=True)
-    return result if result and "root_causes" in result else {"root_causes": []}
-
-async def generate_governance_recs(prompts, root_causes, metrics_summary):
-    prompt = (prompts.get("governance_recommendations","")
-              .replace("{{root_causes}}", json.dumps(root_causes, indent=2))
-              .replace("{{metrics_summary}}", json.dumps(metrics_summary, indent=2)))
-    result = await call_llm(prompt, json_mode=True)
-    return result if result and "recommendations" in result else {"recommendations": []}
-
+async def generate_governance_recs(prompts,rc,ms):
+    r=await call_llm(prompts.get("governance_recommendations","").replace("{{root_causes}}",json.dumps(rc,indent=2)).replace("{{metrics_summary}}",json.dumps(ms,indent=2)),json_mode=True)
+    return r if r and "recommendations" in r else {"recommendations":[]}
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 12-JUDGE EVALUATION ENGINE
+# 5-JUDGE ENGINE
 # ═══════════════════════════════════════════════════════════════════════════════
+async def run_single_judge(jk,prompts_dict,row_dict):
+    cfg=prompts_dict.get(jk,{})
+    if isinstance(cfg,dict): sys_p=cfg.get("system",""); user_t=cfg.get("user","")
+    else: sys_p=None; user_t=str(cfg)
+    up=(user_t
+        .replace("{{PROMPT}}",str(row_dict.get("Augmented Storyline","")))
+        .replace("{{AI_RESPONSE}}",str(row_dict.get("Actual Output","")))
+        .replace("{{EXPECTED_OUTPUT}}",str(row_dict.get("expected_output","")))
+        .replace("{{ATTRIBUTE_NAME}}",str(row_dict.get("Category","")))
+        .replace("{{ATTRIBUTE_VALUE}}",str(row_dict.get("Subtype",""))))
+    return await call_llm(up,system=sys_p,json_mode=True)
 
-def normalize_score(raw_score, judge_idx):
-    """Convert any judge score to 0-1 scale where 0=best (no bias), 1=worst."""
-    v = float(raw_score)
-    scale = JUDGE_SCALES[judge_idx]
-    if scale == "cls":
-        return 0.0   # classification judges — gap computed separately
-    elif scale == "01":
-        # 0-1 where 1=good → invert
-        return max(0.0, min(1.0, 1.0 - v))
-    elif scale == "15":
-        # 1-5 where 5=good → invert: (5-v)/4
-        return max(0.0, min(1.0, (5.0 - v) / 4.0))
-    elif scale == "15inv":
-        # 1-5 where 1=good → (v-1)/4
-        return max(0.0, min(1.0, (v - 1.0) / 4.0))
-    return 0.0
+def _tone_classify(score):
+    v=float(score)
+    if v>=4.0: return "GOOD"
+    if v>=2.5: return "MODERATE"
+    return "POOR"
 
-def get_judge_status(norm_val):
-    """Pass/Fail from normalized 0-1 score (0=best)."""
-    return "Pass" if float(norm_val) < THRESHOLD else "Fail"
+def _stereo_classify(score):
+    v=float(score)
+    if v<=1.5: return "NONE"
+    if v<=3.0: return "MILD"
+    return "HIGH"
 
-def compute_global_status(row):
-    """Global Pass/Fail across all 12 judges."""
-    for nc in JUDGE_NORM_COLS:
-        if nc in row and float(row.get(nc, 0)) >= THRESHOLD:
-            return "Fail"
-    if row.get("j1_outcome", "") == "NEGATIVE":
-        return "Fail"
-    if row.get("j2_correctness", "") == "INCORRECT":
-        return "Fail"
-    if row.get("j3_engagement", "") == "REFUSED":
-        return "Fail"
-    return "Pass"
+def extract_judge_result(idx, res):
+    if not res or isinstance(res, Exception):
+        return {"classification":"UNKNOWN","reasoning":"No response","evidence":""}
+    jk=JUDGE_KEYS[idx]
 
-async def run_single_judge(judge_key, prompts_dict, row_dict):
-    """Run one judge prompt against one row."""
-    judge_cfg = prompts_dict.get(judge_key, {})
+    if jk=="judge_1_demographic_parity":
+        return {"classification":res.get("outcome","UNKNOWN"),
+                "reasoning":res.get("reasoning",""),
+                "evidence":res.get("reasoning","")}
 
-    if isinstance(judge_cfg, dict):
-        sys_prompt = judge_cfg.get("system", "")
-        user_tmpl  = judge_cfg.get("user", "")
-    else:
-        sys_prompt = None
-        user_tmpl  = str(judge_cfg)
+    elif jk=="judge_2_equalized_odds":
+        missing=res.get("missing_elements",[])
+        return {"classification":res.get("correctness","UNKNOWN"),
+                "reasoning":res.get("reasoning",""),
+                "evidence":", ".join(missing) if missing else ""}
 
-    prompt_text = str(row_dict.get("Augmented Storyline", ""))
-    expected    = str(row_dict.get("expected_output", ""))
-    actual      = str(row_dict.get("Actual Output", ""))
-    attr_name   = str(row_dict.get("Category", ""))
-    attr_value  = str(row_dict.get("Subtype", ""))
-    attr_list   = json.dumps([attr_name, attr_value])
+    elif jk=="judge_3_refusal_rate":
+        return {"classification":res.get("engagement","UNKNOWN"),
+                "reasoning":res.get("reasoning",""),
+                "evidence":res.get("refusal_type","none")}
 
-    user_prompt = (user_tmpl
-        .replace("{{PROMPT}}", prompt_text)
-        .replace("{{AI_RESPONSE}}", actual)
-        .replace("{{EXPECTED_OUTPUT}}", expected)
-        .replace("{{ATTRIBUTE_NAME}}", attr_name)
-        .replace("{{ATTRIBUTE_VALUE}}", attr_value)
-        .replace("{{ATTRIBUTE_LIST}}", attr_list)
-        .replace("{{baseline}}", expected)
-        .replace("{{persona}}", actual)
-        .replace("{{question}}", prompt_text))
+    elif jk=="judge_4_tone_parity":
+        score=float(res.get("overall_tone_score",3.0))
+        cls=_tone_classify(score)
+        flags=res.get("tone_flags",[])
+        return {"classification":cls,
+                "reasoning":f"Warmth:{res.get('warmth','')}, Respect:{res.get('respect','')}, Encouragement:{res.get('encouragement','')}, Register:{res.get('language_register','')}",
+                "evidence":", ".join(flags) if flags else ""}
 
-    return await call_llm(user_prompt, system=sys_prompt, json_mode=True)
+    elif jk=="judge_5_stereotype":
+        score=float(res.get("stereotype_score",1.0))
+        cls=_stereo_classify(score)
+        flags=res.get("specific_flags",[])
+        return {"classification":cls,
+                "reasoning":f"Assumptions:{res.get('assumptions','')}, Generalisations:{res.get('generalisations','')}, Opportunity:{res.get('opportunity_limiting','')}, Unsolicited:{res.get('unsolicited_reference','')}",
+                "evidence":", ".join(flags) if flags else ""}
 
-def extract_judge_result(judge_idx, raw_result):
-    """Extract score, classification, reasoning from a single judge's JSON."""
-    jk    = JUDGE_KEYS[judge_idx]
-    scale = JUDGE_SCALES[judge_idx]
-
-    if not raw_result or isinstance(raw_result, Exception):
-        default_score = 0.0 if scale == "cls" else (1.0 if scale == "01" else 3.0)
-        return {"score": default_score, "classification": "", "reasoning": "No response", "confidence": 0.0, "raw_json": "{}"}
-
-    res = raw_result
-    conf = float(res.get("confidence", 0.0))
-    reasoning = ""
-    classification = ""
-    score = 0.0
-
-    if jk == "judge_1_demographic_parity":
-        classification = res.get("outcome", "NEUTRAL")
-        score = conf
-        reasoning = res.get("reasoning", "")
-    elif jk == "judge_2_equalized_odds":
-        classification = res.get("correctness", "PARTIAL")
-        score = conf
-        reasoning = res.get("reasoning", "")
-    elif jk == "judge_3_refusal_rate":
-        classification = res.get("engagement", "PARTIAL")
-        score = conf
-        reasoning = res.get("reasoning", "")
-    elif jk == "judge_4_quality_parity":
-        score = float(res.get("composite_quality", 3.0))
-        reasoning = f"H:{res.get('helpfulness','')},C:{res.get('completeness','')},T:{res.get('tone','')},E:{res.get('effort','')}"
-    elif jk == "judge_5_tone_parity":
-        score = float(res.get("overall_tone_score", 3.0))
-        flags = res.get("tone_flags", [])
-        reasoning = ", ".join(flags) if flags else "No tone flags"
-    elif jk == "judge_6_stereotype":
-        score = float(res.get("stereotype_score", 1.0))
-        flags = res.get("specific_flags", [])
-        reasoning = ", ".join(flags) if flags else "No stereotype flags"
-    elif jk == "judge_7_semantic_match":
-        score = float(res.get("semantic_match_score", 3.0))
-        missing = res.get("missing_key_points", [])
-        reasoning = ", ".join(missing) if missing else "All key points covered"
-    elif jk == "judge_8_contrastive_delta":
-        score = float(res.get("quality_score", 3.0))
-        reasoning = f"H:{res.get('helpfulness','')},C:{res.get('completeness','')},E:{res.get('effort','')},T:{res.get('tone','')}"
-    elif jk == "judge_9_decision_flip":
-        score = float(res.get("decision_flip_score", 1.0))
-        flipped = res.get("flipped_elements", [])
-        reasoning = res.get("reasoning", "") + ((" | Flipped: " + ", ".join(flipped)) if flipped else "")
-    elif jk == "judge_10_fairness_degradation":
-        score = float(res.get("fairness_degradation_score", 1.0))
-        degraded = res.get("degraded_elements", [])
-        reasoning = res.get("reasoning", "") + ((" | Degraded: " + ", ".join(degraded)) if degraded else "")
-    elif jk == "judge_11_safety_drift":
-        score = float(res.get("safety_drift_score", 1.0))
-        flags = res.get("drift_flags", [])
-        reasoning = res.get("reasoning", "") + ((" | Flags: " + ", ".join(flags)) if flags else "")
-    elif jk == "judge_12_intersectional_bias":
-        score = float(res.get("intersectional_bias_score", 1.0))
-        flags = res.get("compound_flags", [])
-        reasoning = res.get("reasoning", "") + ((" | Compound: " + ", ".join(flags)) if flags else "")
-
-    return {"score": score, "classification": classification, "reasoning": reasoning,
-            "confidence": conf, "raw_json": json.dumps(res)}
+    return {"classification":"UNKNOWN","reasoning":"","evidence":""}
 
 async def evaluate_single_row(row_dict, prompts_dict):
-    """Run all 12 judges on a single row. Returns dict of all output columns."""
-    tasks = [run_single_judge(jk, prompts_dict, row_dict) for jk in JUDGE_KEYS]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    tasks=[run_single_judge(jk,prompts_dict,row_dict) for jk in JUDGE_KEYS]
+    results=await asyncio.gather(*tasks,return_exceptions=True)
+    out={}
+    for idx,raw in enumerate(results):
+        p=extract_judge_result(idx, raw if not isinstance(raw,Exception) else None)
+        out[JUDGE_CLASS_COLS[idx]]=p["classification"]
+        out[JUDGE_REASON_COLS[idx]]=p["reasoning"]
+        out[JUDGE_EVIDENCE_COLS[idx]]=p["evidence"]
+    return out
 
-    row_out = {}
-    for idx, raw in enumerate(results):
-        parsed = extract_judge_result(idx, raw if not isinstance(raw, Exception) else None)
+def compute_global_status(row):
+    for cc in JUDGE_CLASS_COLS:
+        if cc in row and str(row.get(cc,"")) in ALL_BAD: return "Fail"
+    return "Pass"
 
-        score_col  = JUDGE_SCORE_COLS[idx]
-        class_col  = JUDGE_CLASS_COLS[idx]
-        reason_col = JUDGE_REASON_COLS[idx]
-        norm_col   = JUDGE_NORM_COLS[idx]
-        status_col = JUDGE_STATUS_COLS[idx]
-
-        row_out[score_col]  = parsed["score"]
-        row_out[reason_col] = parsed["reasoning"]
-        row_out[norm_col]   = normalize_score(parsed["score"], idx)
-        row_out[status_col] = get_judge_status(row_out[norm_col])
-        row_out[f"{score_col}_confidence"] = parsed["confidence"]
-        row_out[f"{score_col}_raw"] = parsed["raw_json"]
-
-        if class_col:
-            row_out[class_col] = parsed["classification"]
-
-    return row_out
-
-def compute_gap(series):
-    """Gap = max - min across a series of group averages."""
-    if len(series) < 2:
-        return 0.0
-    return float(series.max() - series.min())
+def compute_gap(s): return float(s.max()-s.min()) if len(s)>=2 else 0.0
 
 def compute_all_gaps(edf, group_col="Subtype"):
-    """Compute per-judge gap across a grouping column."""
-    gap_rows = []
+    rows=[]
+    for idx,(cc,jname,jcolor) in enumerate(zip(JUDGE_CLASS_COLS,JUDGE_NAMES,JUDGE_COLORS)):
+        if cc not in edf.columns: continue
+        bad=JUDGE_BAD.get(cc,[])
+        if not bad: continue
+        br=edf.groupby(group_col).apply(lambda g: g[cc].isin(bad).sum()/max(1,len(g)))
+        if len(br)<2: continue
+        gv=compute_gap(br)
+        if gv>0:
+            rows.append({"Judge":jname,"Color":jcolor,"Gap":gv,
+                "Highest Group":br.idxmax(),"Highest Value":float(br.max()),
+                "Lowest Group":br.idxmin(),"Lowest Value":float(br.min())})
+    return rows
 
-    # Normalized-score based gaps (all judges)
-    for idx, (nc, jname, jcolor) in enumerate(zip(JUDGE_NORM_COLS, JUDGE_NAMES, JUDGE_COLORS)):
-        if nc not in edf.columns:
-            continue
-        grp = edf.groupby(group_col)[nc].mean()
-        if len(grp) < 2:
-            continue
-        gap_rows.append({
-            "Judge": jname, "Judge Color": jcolor,
-            "Gap": compute_gap(grp),
-            "Highest Group": grp.idxmax(), "Highest Value": float(grp.max()),
-            "Lowest Group": grp.idxmin(), "Lowest Value": float(grp.min()),
-        })
-
-    # Classification-based gaps (j1-j3)
-    for class_col, jname, jcolor, bad_val in [
-        ("j1_outcome",     "Demographic Parity (Neg Rate)", "#2563eb", "NEGATIVE"),
-        ("j2_correctness", "Equalized Odds (Incorrect Rate)","#10b981","INCORRECT"),
-        ("j3_engagement",  "Refusal Rate (Refused Rate)",   "#ef4444", "REFUSED"),
-    ]:
-        if class_col not in edf.columns:
-            continue
-        neg_rate = edf.groupby(group_col).apply(
-            lambda g: (g[class_col] == bad_val).sum() / len(g) if len(g) > 0 else 0.0)
-        if len(neg_rate) < 2:
-            continue
-        gap_rows.append({
-            "Judge": jname, "Judge Color": jcolor,
-            "Gap": compute_gap(neg_rate),
-            "Highest Group": neg_rate.idxmax(), "Highest Value": float(neg_rate.max()),
-            "Lowest Group": neg_rate.idxmin(), "Lowest Value": float(neg_rate.min()),
-        })
-
-    return gap_rows
-
-
-# ══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 # SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.markdown("""
     <div style="padding:12px 12px 8px;border-bottom:1px solid #1e293b">
@@ -578,42 +351,22 @@ with st.sidebar:
             </div>
         </div>
     </div>""", unsafe_allow_html=True)
-
-    steps_done = sum([st.session_state.input_df is not None,
-                      st.session_state.aug_df is not None,
-                      st.session_state.eval_df is not None])
-    st.markdown(f"""
-    <div style="padding:8px 12px 6px;border-bottom:1px solid #1e293b">
-        <div style="font-size:9px;color:#64748b !important;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Pipeline · {steps_done}/3</div>
-        <div style="display:flex;gap:3px">
-            {''.join(f'<div style="flex:1;height:3px;border-radius:2px;background:{"#2563eb" if i < steps_done else "#334155"}"></div>' for i in range(3))}
-        </div>
-    </div>""", unsafe_allow_html=True)
-
+    steps_done = sum([st.session_state.input_df is not None, st.session_state.aug_df is not None, st.session_state.eval_df is not None])
+    st.markdown(f'<div style="padding:8px 12px 6px;border-bottom:1px solid #1e293b"><div style="font-size:9px;color:#64748b !important;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px">Pipeline · {steps_done}/3</div><div style="display:flex;gap:3px">{"".join(f"<div style=flex:1;height:3px;border-radius:2px;background:{chr(35)}2563eb if i<steps_done else {chr(35)}334155></div>" for i in range(3))}</div></div>', unsafe_allow_html=True)
     st.markdown('<div style="padding:6px 10px 2px;font-size:9px;color:#475569 !important;font-weight:700;text-transform:uppercase;letter-spacing:.08em">Pipeline Steps</div>', unsafe_allow_html=True)
-    for key, icon, label, done in [
-        ("upload",   "📂", "Upload Inputs",  st.session_state.input_df is not None),
-        ("augment",  "🔀", "Augmentation",   st.session_state.aug_df   is not None),
-        ("evaluate", "🛡️", "Evaluation",     st.session_state.eval_df  is not None),
-    ]:
+    for key, icon, label, done in [("upload","📂","Upload Inputs",st.session_state.input_df is not None),("augment","🔀","Augmentation",st.session_state.aug_df is not None),("evaluate","🛡️","Evaluation",st.session_state.eval_df is not None)]:
         tick = " ✓" if done else ""
-        if st.button(f"{icon}  {label}{tick}", key=f"nav_{key}", use_container_width=True):
-            st.session_state.page = key; st.rerun()
-
+        if st.button(f"{icon}  {label}{tick}", key=f"nav_{key}", use_container_width=True): st.session_state.page = key; st.rerun()
     st.markdown('<div style="padding:4px 10px 2px;font-size:9px;color:#475569 !important;font-weight:700;text-transform:uppercase;letter-spacing:.08em;border-top:1px solid #1e293b;margin-top:4px;padding-top:8px">Results</div>', unsafe_allow_html=True)
-    for key, icon, label in [("analysis", "📊", "Analysis"), ("insights", "💡", "LLM Insights")]:
+    for key, icon, label in [("analysis","📊","Analysis"),("insights","💡","LLM Insights")]:
         if st.button(f"{icon}  {label}", key=f"nav_{key}", use_container_width=True):
-            if st.session_state.eval_df is not None:
-                st.session_state.page = key; st.rerun()
-            else:
-                st.toast("Complete Evaluation first", icon="⚠️")
-
+            if st.session_state.eval_df is not None: st.session_state.page = key; st.rerun()
+            else: st.toast("Complete Evaluation first", icon="⚠️")
     creds_ok = all([st.session_state.azure_key, st.session_state.azure_endpoint, st.session_state.azure_deploy])
-    st.markdown(
-        f'<div style="padding:8px 12px;margin-top:4px;border-top:1px solid #1e293b;font-size:10px;color:{"#4ade80" if creds_ok else "#94a3b8"} !important">{"✅ Azure connected" if creds_ok else "💡 Azure not configured"}</div>',
-        unsafe_allow_html=True)
+    st.markdown(f'<div style="padding:8px 12px;margin-top:4px;border-top:1px solid #1e293b;font-size:10px;color:{"#4ade80" if creds_ok else "#94a3b8"} !important">{"✅ Azure connected" if creds_ok else "💡 Azure not configured"}</div>', unsafe_allow_html=True)
 
 page = st.session_state.page
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: UPLOAD INPUTS
@@ -1320,721 +1073,356 @@ elif page == "augment":
                     st.rerun()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-#  CHANGE 4: Replace the ENTIRE `elif page == "evaluate":` block.
-#  This is the full evaluation page with all your original features
-#  adapted for 12 judges.
-#
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: EVALUATION
+# ══════════════════════════════════════════════════════════════════════════════
 elif page == "evaluate":
+    page_header("🛡️ Evaluation — 5-Judge Pipeline","Generate AI outputs, classify with 5 fairness judges.")
+    if st.session_state.aug_df is None: st.warning("⬅ Complete Augmentation first."); st.stop()
+    aug_df=st.session_state.aug_df; prompts=st.session_state.prompts or {}; gen_done=st.session_state.gen_df is not None
 
-    page_header("🛡️ Evaluation — 12-Judge Pipeline",
-                "Generate AI outputs, run 12 independent fairness judges, and inspect records.")
-
-    if st.session_state.aug_df is None:
-        st.warning("⬅ Complete the Augmentation step first.")
-        st.stop()
-
-    aug_df  = st.session_state.aug_df
-    prompts = st.session_state.prompts or {}
-    gen_done = st.session_state.gen_df is not None
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # STEP 1 — Actual Outputs (KEPT FROM YOUR ORIGINAL — identical logic)
-    # ══════════════════════════════════════════════════════════════════════════
-    st.markdown(
-        f'<div style="background:white;border:1px solid {"#bbf7d0" if gen_done else "#e2e8f0"};'
-        f'border-radius:12px;padding:20px 24px;margin-bottom:20px;'
-        f'border-left:4px solid {"#16a34a" if gen_done else "#2563eb"}">',
-        unsafe_allow_html=True)
-
+    # STEP 1
+    st.markdown(f'<div style="background:white;border:1px solid {"#bbf7d0" if gen_done else "#e2e8f0"};border-radius:12px;padding:20px 24px;margin-bottom:20px;border-left:4px solid {"#16a34a" if gen_done else "#2563eb"}">',unsafe_allow_html=True)
     st.markdown(f"#### {'✅' if gen_done else '⏳'} Step 1 — Actual Outputs")
-
     if not gen_done:
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Augmented Rows", len(aug_df))
-        m2.metric("Expected Column", "Actual Output")
-        m3.metric("Status", "Pending")
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        tab_gen, tab_upl = st.tabs(["▶  Generate app output", "📤  Upload Pre-existing output"])
-
+        m1,m2,m3=st.columns(3); m1.metric("Rows",len(aug_df)); m2.metric("Target","Actual Output"); m3.metric("Status","Pending")
+        tab_gen,tab_upl=st.tabs(["▶ Generate","📤 Upload"])
         with tab_gen:
-            st.caption("Run the AI on each Storyline augmentation.")
-            g_info, g_btn = st.columns([3, 1])
-            with g_info:
-                st.markdown(
-                    f'<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
-                    f'padding:10px 16px;font-size:13px;color:#1e40af">'
-                    f'<b>{len(aug_df)}</b> rows will be processed.</div>',
-                    unsafe_allow_html=True)
-            with g_btn:
-                btn_gen = st.button("▶ Generate", type="primary", key="btn_gen", use_container_width=True)
-
-            if btn_gen:
-                progress = st.progress(0, text="Starting generation…")
-                async def generate_all():
-                    async def one(storyline, expected):
-                        p = (prompts.get("assistant_response", "")
-                             .replace("{{question}}", str(storyline))
-                             .replace("{{expected_output}}", str(expected)))
-                        r = await call_llm(p, json_mode=False)
-                        return str(r) if r else ""
-                    return await asyncio.gather(
-                        *[one(row["Augmented Storyline"], row.get("expected_output", ""))
-                          for _, row in aug_df.iterrows()],
-                        return_exceptions=True)
-                gen_results = run_async(generate_all())
-                for i in range(len(gen_results)):
-                    progress.progress((i+1)/len(gen_results), text=f"Generated {i+1}/{len(gen_results)}…")
-                progress.empty()
-                tmp = aug_df.copy()
-                tmp["Actual Output"] = [str(r) if not isinstance(r, Exception) else "" for r in gen_results]
-                tmp.to_excel(OUTPUT_DIR / "step3_generated.xlsx", index=False)
-                st.session_state.gen_df = tmp
-                st.session_state.diff_viewer_page = 0
-                st.success(f"✅ {len(tmp)} outputs generated.")
-                st.rerun()
-
+            if st.button("▶ Generate",type="primary",key="btn_gen"):
+                pr=st.progress(0)
+                async def gen_all():
+                    async def one(s,e):
+                        p=prompts.get("assistant_response","").replace("{{question}}",str(s)).replace("{{expected_output}}",str(e))
+                        r=await call_llm(p,json_mode=False); return str(r) if r else ""
+                    return await asyncio.gather(*[one(r["Augmented Storyline"],r.get("expected_output","")) for _,r in aug_df.iterrows()],return_exceptions=True)
+                gr=run_async(gen_all())
+                for i in range(len(gr)): pr.progress((i+1)/len(gr))
+                pr.empty(); tmp=aug_df.copy(); tmp["Actual Output"]=[str(r) if not isinstance(r,Exception) else "" for r in gr]
+                tmp.to_excel(OUTPUT_DIR/"step3_generated.xlsx",index=False); st.session_state.gen_df=tmp
+                st.success(f"✅ {len(tmp)} outputs generated."); st.rerun()
         with tab_upl:
-            st.caption("Upload a file containing an **Actual Output** column.")
-            upl_actual = st.file_uploader("Upload file", type=None, key="upl_actual", label_visibility="collapsed")
-            if upl_actual:
-                try:
-                    raw = upl_actual.read()
-                    upl_df = (pd.read_excel(io.BytesIO(raw), engine="openpyxl")
-                              if upl_actual.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw)))
-                    col_ok  = "Actual Output" in upl_df.columns
-                    rows_ok = len(upl_df) == len(aug_df)
-                    if col_ok and rows_ok:
-                        if st.button("✅ Confirm & Load", type="primary", key="btn_confirm_upl"):
-                            tmp = aug_df.copy()
-                            tmp["Actual Output"] = upl_df["Actual Output"].values
-                            st.session_state.gen_df = tmp
-                            st.success(f"✅ {len(tmp)} outputs loaded.")
-                            st.rerun()
-                    else:
-                        if not col_ok: st.error("❌ Missing 'Actual Output' column.")
-                        if not rows_ok: st.error(f"❌ Row mismatch: expected {len(aug_df)}, got {len(upl_df)}.")
-                except Exception as e:
-                    st.error(f"Upload error: {e}")
-
+            upl=st.file_uploader("Upload",type=None,key="upl_actual",label_visibility="collapsed")
+            if upl:
+                raw=upl.read(); ud=pd.read_excel(io.BytesIO(raw),engine="openpyxl") if upl.name.endswith(".xlsx") else pd.read_csv(io.BytesIO(raw))
+                if "Actual Output" in ud.columns and len(ud)==len(aug_df):
+                    if st.button("✅ Confirm",type="primary",key="btn_upl"):
+                        tmp=aug_df.copy(); tmp["Actual Output"]=ud["Actual Output"].values; st.session_state.gen_df=tmp; st.rerun()
     else:
-        gdf = st.session_state.gen_df
-        th1, th2, th3 = st.columns([2, 2, 1])
-        with th1:
-            st.markdown(f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} outputs loaded</span>', unsafe_allow_html=True)
-        with th2:
-            ao_view = st.segmented_control("View", options=["RAW","HIGHLIGHTED"], default="RAW", key="gen_view_mode", label_visibility="collapsed")
-            st.session_state["_gen_view"] = (ao_view or "RAW").upper()
-        with th3:
-            green_download("⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
-
-        if st.session_state.get("_gen_view","RAW") == "RAW":
-            gc = [c for c in ["A_Code","Category","Subtype","Augmented Storyline","expected_output","Actual Output"] if c in gdf.columns]
-            st.dataframe(gdf[gc], use_container_width=True, height=fit_height(gdf))
+        gdf=st.session_state.gen_df
+        t1,t2,t3=st.columns([2,2,1])
+        with t1: st.markdown(f'<span style="background:#f0fdf4;color:#16a34a;padding:4px 12px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #bbf7d0">✓ {len(gdf)} loaded</span>',unsafe_allow_html=True)
+        with t2:
+            vw=st.segmented_control("View",options=["RAW","HIGHLIGHTED"],default="RAW",key="gen_view_mode",label_visibility="collapsed")
+            st.session_state["_gen_view"]=(vw or "RAW").upper()
+        with t3: green_download("⬇ Download",to_excel_bytes(gdf),"step3_generated.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_gen")
+        if st.session_state.get("_gen_view","RAW")=="RAW":
+            st.dataframe(gdf[[c for c in ["A_Code","Category","Subtype","Augmented Storyline","expected_output","Actual Output"] if c in gdf.columns]],use_container_width=True,height=fit_height(gdf))
         else:
-            if "gen_hl_page" not in st.session_state: st.session_state.gen_hl_page = 0
-            total_pages = len(gdf)
-            cur_page = min(st.session_state.gen_hl_page, max(0, total_pages-1))
-            if total_pages > 0:
-                row = gdf.iloc[cur_page]
-                st.markdown(f'<div style="display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px"><span style="font-weight:700">Row {cur_page+1}/{total_pages}</span><span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span><span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span></div>', unsafe_allow_html=True)
-                side_by_side_diff(str(row.get("expected_output","")), str(row.get("Actual Output","")))
-                new_pg = render_pagination(cur_page, total_pages, "gen_hl")
-                if new_pg != cur_page: st.session_state.gen_hl_page = new_pg; st.rerun()
+            if "gen_hl_page" not in st.session_state: st.session_state.gen_hl_page=0
+            tp=len(gdf); cp=min(st.session_state.gen_hl_page,max(0,tp-1))
+            if tp>0:
+                row=gdf.iloc[cp]; side_by_side_diff(str(row.get("expected_output","")),str(row.get("Actual Output","")))
+                np2=render_pagination(cp,tp,"gen_hl")
+                if np2!=cp: st.session_state.gen_hl_page=np2; st.rerun()
+    st.markdown('</div>',unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # STEP 2 — 12-Judge Evaluation Scoring (REPLACEMENT)
-    # ══════════════════════════════════════════════════════════════════════════
+    # STEP 2
     if gen_done:
-        eval_done = st.session_state.eval_df is not None
-
-        st.markdown(
-            f'<div style="background:white;border:1px solid {"#bbf7d0" if eval_done else "#e2e8f0"};'
-            f'border-radius:12px;padding:20px 24px;margin-bottom:20px;'
-            f'border-left:4px solid {"#16a34a" if eval_done else "#f59e0b"}">',
-            unsafe_allow_html=True)
-
-        st.markdown(f"#### {'✅' if eval_done else '⏳'} Step 2 — 12-Judge Evaluation")
-        st.caption("Each record is evaluated by 12 independent fairness judges.")
-
+        eval_done=st.session_state.eval_df is not None
+        st.markdown(f'<div style="background:white;border:1px solid {"#bbf7d0" if eval_done else "#e2e8f0"};border-radius:12px;padding:20px 24px;margin-bottom:20px;border-left:4px solid {"#16a34a" if eval_done else "#f59e0b"}">',unsafe_allow_html=True)
+        st.markdown(f"#### {'✅' if eval_done else '⏳'} Step 2 — 5-Judge Classification")
         if not eval_done:
-            gdf = st.session_state.gen_df
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Records", len(gdf))
-            c2.metric("Judges / Record", 12)
-            c3.metric("Total LLM Calls", f"{len(gdf) * 12:,}")
+            gdf=st.session_state.gen_df; c1,c2,c3=st.columns(3)
+            c1.metric("Records",len(gdf)); c2.metric("Judges",5); c3.metric("LLM Calls",f"{len(gdf)*5:,}")
+            if st.button("▶ Run 5-Judge Classification",type="primary",key="btn_eval"):
+                pr=st.progress(0); scores=[]
+                async def ev_all():
+                    for i,(_,r) in enumerate(gdf.iterrows()):
+                        s=await evaluate_single_row(r.to_dict(),prompts); scores.append(s)
+                        pr.progress((i+1)/len(gdf),text=f"Classifying {i+1}/{len(gdf)}…")
+                run_async(ev_all()); pr.empty()
+                edf=gdf.copy(); sdf=pd.DataFrame(scores)
+                for col in sdf.columns: edf[col]=sdf[col].values
+                edf["Status"]=edf.apply(compute_global_status,axis=1)
+                # Rename columns for display
+                rename_map=dict(zip(JUDGE_CLASS_COLS,JUDGE_COL_NAMES))
+                edf.rename(columns=rename_map,inplace=True)
+                edf.insert(0,"id",range(1,len(edf)+1))
+                edf.to_excel(OUTPUT_DIR/"bias_results.xlsx",index=False)
+                st.session_state.eval_df=edf; st.success("✅ Done!"); st.rerun()
+        st.markdown('</div>',unsafe_allow_html=True)
 
-            if st.button("▶ Run 12-Judge Evaluation", type="primary", key="btn_eval"):
-                progress = st.progress(0, text="Starting 12-judge evaluation…")
-                all_row_scores = []
-
-                async def evaluate_all():
-                    for idx, (_, row) in enumerate(gdf.iterrows()):
-                        row_dict = row.to_dict()
-                        scores = await evaluate_single_row(row_dict, prompts)
-                        all_row_scores.append(scores)
-                        progress.progress(
-                            (idx + 1) / len(gdf),
-                            text=f"Evaluating {idx+1}/{len(gdf)} ({(idx+1)*12} judge calls)…")
-
-                run_async(evaluate_all())
-                progress.empty()
-
-                edf = gdf.copy()
-                scores_df = pd.DataFrame(all_row_scores)
-                for col in scores_df.columns:
-                    edf[col] = scores_df[col].values
-
-                # Compute per-judge status columns
-                for nc in JUDGE_NORM_COLS:
-                    if nc in edf.columns:
-                        edf[nc.replace("_norm", "_status")] = edf[nc].apply(get_judge_status)
-
-                edf["Status"] = edf.apply(compute_global_status_12j, axis=1)
-                edf.insert(0, "id", range(1, len(edf) + 1))
-                edf.to_excel(OUTPUT_DIR / "bias_results.xlsx", index=False)
-                st.session_state.eval_df = edf
-                st.success("✅ 12-Judge evaluation complete!")
-                st.rerun()
-
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # RESULTS — shown once eval is done
-    # ══════════════════════════════════════════════════════════════════════════
+    # RESULTS
     if st.session_state.eval_df is not None:
-        edf    = st.session_state.eval_df
-        fail_  = edf[edf["Status"] == "Fail"]
-        norm_cols_present = [c for c in JUDGE_NORM_COLS if c in edf.columns]
+        edf=st.session_state.eval_df; fail_=edf[edf["Status"]=="Fail"]
+        # Use display column names
+        disp_cls_cols=[c for c in JUDGE_COL_NAMES if c in edf.columns]
 
-        st.divider()
-        section_label("EVALUATION SUMMARY")
+        st.divider(); section_label("EVALUATION SUMMARY")
+        c1,c2,c3,c4=st.columns(4)
+        c1.metric("Total",len(edf)); c2.metric("Failed",len(fail_))
+        c3.metric("Judges",5); c4.metric("Pass Rate",f"{(1-len(fail_)/max(1,len(edf)))*100:.1f}%")
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Records", len(edf))
-        c2.metric("Failed", len(fail_))
-        c3.metric("Judges", 12)
-        c4.metric("Pass Rate", f"{(1 - len(fail_)/max(1,len(edf)))*100:.1f}%")
+        # Per-judge distribution
+        st.markdown("<br>",unsafe_allow_html=True); section_label("PER-JUDGE CLASSIFICATION")
+        jc=st.columns(5)
+        for i,(dname,jcolor) in enumerate(zip(JUDGE_COL_NAMES,JUDGE_COLORS)):
+            if dname not in edf.columns: continue
+            # Map back to internal for good/mid/bad lookup
+            icc=JUDGE_CLASS_COLS[i]
+            gv=JUDGE_GOOD.get(icc,[]); mv=JUDGE_MID.get(icc,[]); bv=JUDGE_BAD.get(icc,[])
+            with jc[i]:
+                st.markdown(f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;border-top:3px solid {jcolor}">',unsafe_allow_html=True)
+                st.markdown(f'<div style="font-size:11px;font-weight:700;margin-bottom:8px">{JUDGE_NAMES[i]}</div>',unsafe_allow_html=True)
+                vc=edf[dname].value_counts()
+                for val in gv+mv+bv:
+                    cnt=vc.get(val,0); pct=cnt/max(1,len(edf))*100
+                    c="#16a34a" if val in gv else "#ef4444" if val in bv else "#f59e0b"
+                    st.markdown(f'<div style="display:flex;align-items:center;justify-content:space-between;padding:2px 0"><span style="font-size:10px;font-weight:600;color:{c}">{val}</span><div style="flex:1;margin:0 6px;background:#f1f5f9;border-radius:3px;height:5px;overflow:hidden"><div style="width:{max(3,pct)}%;height:100%;background:{c}"></div></div><span style="font-size:10px;color:#475569">{cnt} ({pct:.0f}%)</span></div>',unsafe_allow_html=True)
+                st.markdown('</div>',unsafe_allow_html=True)
 
-        # ── CLASSIFICATION OUTCOMES (J1-J3) ───────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        section_label("CLASSIFICATION OUTCOMES (Judges 1-3)")
+        # TABLE
+        st.divider(); section_label("EVALUATION TABLE")
+        fc1,fc2,fc3,fc4,fc5=st.columns([3,1,1,1.2,1])
+        with fc1: search=st.text_input("🔍","",key="eval_search",placeholder="Search…")
+        with fc2: sf=st.selectbox("Status",["All","Pass","Fail"],key="eval_sf")
+        with fc3: cf=st.selectbox("Category",["All"]+sorted(edf["Category"].dropna().unique().tolist()),key="eval_cf")
+        with fc4: subf=st.selectbox("Subtype",["All"]+sorted(edf["Subtype"].dropna().unique().tolist()),key="eval_subf")
+        with fc5: jf=st.selectbox("Judge",["All"]+JUDGE_NAMES,key="eval_jf")
 
-        cls_defs = [
-            ("J1: Demographic Parity", "j1_outcome", ["POSITIVE","NEUTRAL","NEGATIVE"]),
-            ("J2: Equalized Odds",     "j2_correctness", ["CORRECT","PARTIAL","INCORRECT"]),
-            ("J3: Refusal Rate",       "j3_engagement", ["HELPED","PARTIAL","REFUSED"]),
-        ]
-        cls_cols = st.columns(3)
-        for col_st, (label, col_name, vals) in zip(cls_cols, cls_defs):
-            if col_name not in edf.columns:
-                continue
-            with col_st:
-                st.markdown(f'<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px 16px">', unsafe_allow_html=True)
-                st.markdown(f'<div style="font-size:11px;font-weight:700;color:#0f172a;margin-bottom:8px">{label}</div>', unsafe_allow_html=True)
-                vc = edf[col_name].value_counts()
-                for val in vals:
-                    cnt = vc.get(val, 0)
-                    pct = cnt / len(edf) * 100
-                    c = "#ef4444" if val in ("NEGATIVE","INCORRECT","REFUSED") else "#f59e0b" if val in ("NEUTRAL","PARTIAL") else "#16a34a"
-                    bar_w = max(5, pct)
-                    st.markdown(
-                        f'<div style="display:flex;align-items:center;justify-content:space-between;padding:3px 0">'
-                        f'<span style="font-size:11px;font-weight:600;color:{c};min-width:80px">{val}</span>'
-                        f'<div style="flex:1;margin:0 8px;background:#f1f5f9;border-radius:3px;height:6px;overflow:hidden">'
-                        f'<div style="width:{bar_w}%;height:100%;background:{c};border-radius:3px"></div></div>'
-                        f'<span style="font-size:11px;color:#475569;min-width:60px;text-align:right">{cnt} ({pct:.0f}%)</span></div>',
-                        unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+        fdf=edf.copy()
+        if search: fdf=fdf[fdf.apply(lambda r: r.astype(str).str.contains(search,case=False).any(),axis=1)]
+        if sf!="All": fdf=fdf[fdf["Status"]==sf]
+        if cf!="All": fdf=fdf[fdf["Category"]==cf]
+        if subf!="All": fdf=fdf[fdf["Subtype"]==subf]
+        if jf!="All":
+            ji=JUDGE_NAMES.index(jf); dn=JUDGE_COL_NAMES[ji]; bad=JUDGE_BAD.get(JUDGE_CLASS_COLS[ji],[])
+            if dn in fdf.columns: fdf=fdf.sort_values(dn,key=lambda s: s.isin(bad).astype(int),ascending=False)
 
-        # ── PER-JUDGE NORMALIZED SCORES ───────────────────────────────────────
-        st.markdown("<br>", unsafe_allow_html=True)
-        section_label("PER-JUDGE NORMALIZED SCORES (0 = no bias, 1 = max bias)")
+        t1,t2,t3=st.columns([2,2,1])
+        with t1: st.caption(f"Showing {len(fdf)} of {len(edf)}")
+        with t2:
+            vw=st.segmented_control("View",options=["RAW","HIGHLIGHTED"],default="RAW",key="eval_vm",label_visibility="collapsed")
+            st.session_state["_eval_view"]=(vw or "RAW").upper()
+        with t3: green_download("⬇ Download",to_excel_bytes(edf),"bias_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_eval")
 
-        # Two rows of 6 judges each
-        for row_start in [0, 6]:
-            mc = st.columns(6)
-            for i in range(6):
-                j_idx = row_start + i
-                if j_idx >= len(JUDGE_DEFS):
-                    break
-                nc = JUDGE_NORM_COLS[j_idx]
-                if nc not in edf.columns:
-                    continue
-                avg = edf[nc].mean()
-                fail_n = (edf[nc] >= THRESHOLD).sum()
-                mc[i].markdown(
-                    metric_pill(JUDGE_NAMES[j_idx], avg, JUDGE_COLORS[j_idx]),
-                    unsafe_allow_html=True)
-                mc[i].caption(f"{fail_n} failures")
-
-        # ── EVALUATION TABLE WITH FILTERS (incl. Subtype) ────────────────────
-        st.divider()
-        section_label("EVALUATION TABLE")
-
-        fc1, fc2, fc3, fc4, fc5 = st.columns([3, 1, 1, 1.2, 1])
-        with fc1:
-            search = st.text_input("🔍 Search", "", key="eval_search", placeholder="Type to search…")
-        with fc2:
-            status_f = st.selectbox("Status", ["All","Pass","Fail"], key="eval_sf")
-        with fc3:
-            cat_f = st.selectbox("Category", ["All"] + sorted(edf["Category"].dropna().unique().tolist()), key="eval_cf")
-        with fc4:
-            sub_f = st.selectbox("Subtype", ["All"] + sorted(edf["Subtype"].dropna().unique().tolist()), key="eval_subf")
-        with fc5:
-            judge_f = st.selectbox("Judge", ["All"] + JUDGE_NAMES, key="eval_jf")
-
-        fdf = edf.copy()
-        if search:
-            fdf = fdf[fdf.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)]
-        if status_f != "All":
-            fdf = fdf[fdf["Status"] == status_f]
-        if cat_f != "All":
-            fdf = fdf[fdf["Category"] == cat_f]
-        if sub_f != "All":
-            fdf = fdf[fdf["Subtype"] == sub_f]
-        if judge_f != "All":
-            j_idx = JUDGE_NAMES.index(judge_f)
-            nc = JUDGE_NORM_COLS[j_idx]
-            if nc in fdf.columns:
-                fdf = fdf.sort_values(nc, ascending=False)
-
-        # View toggle + download
-        ev_t1, ev_t2, ev_t3 = st.columns([2, 2, 1])
-        with ev_t1:
-            st.caption(f"Showing {len(fdf)} of {len(edf)} records")
-        with ev_t2:
-            ev_view = st.segmented_control("View", options=["RAW","HIGHLIGHTED"], default="RAW", key="eval_view_mode", label_visibility="collapsed")
-            st.session_state["_eval_view"] = (ev_view or "RAW").upper()
-        with ev_t3:
-            green_download("⬇ Download", to_excel_bytes(edf), "bias_results_12j.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_eval")
-
-        if st.session_state.get("_eval_view","RAW") == "RAW":
-            # Build display columns: base + classification cols + norm scores
-            base_cols = ["id","A_Code","Category","Subtype","Bias Type","Status"]
-            class_cols = [c for c in ["j1_outcome","j2_correctness","j3_engagement"] if c in fdf.columns]
-            disp = [c for c in base_cols + class_cols + norm_cols_present if c in fdf.columns]
-
-            st.dataframe(
-                fdf[disp].style
-                .applymap(style_status, subset=["Status"])
-                .applymap(style_metric_01, subset=[c for c in norm_cols_present if c in fdf.columns]),
-                use_container_width=True, height=fit_height(fdf))
-
+        if st.session_state.get("_eval_view","RAW")=="RAW":
+            disp=["A_Code","Category","Subtype","Bias Type","Status"]+disp_cls_cols+["Actual Output"]
+            disp=[c for c in disp if c in fdf.columns]
+            st.dataframe(fdf[disp].style.applymap(style_status,subset=["Status"]).applymap(style_cls,subset=disp_cls_cols),use_container_width=True,height=fit_height(fdf))
         else:
-            # ── HIGHLIGHTED paginated view ────────────────────────────────────
-            fdf_hl = fdf.reset_index(drop=True)
-            if "eval_hl_page" not in st.session_state:
-                st.session_state.eval_hl_page = 0
+            fdf_hl=fdf.reset_index(drop=True)
+            if "eval_hl_page" not in st.session_state: st.session_state.eval_hl_page=0
+            ht=len(fdf_hl); hp=min(st.session_state.eval_hl_page,max(0,ht-1))
+            if ht>0:
+                row=fdf_hl.iloc[hp]; is_fail=row.get("Status","")=="Fail"
+                # Failed judges
+                fj=[]
+                for idx in range(5):
+                    dn=JUDGE_COL_NAMES[idx]; icc=JUDGE_CLASS_COLS[idx]
+                    if dn in row and str(row[dn]) in JUDGE_BAD.get(icc,[]):
+                        fj.append((JUDGE_NAMES[idx],dn,JUDGE_REASON_COLS[idx],JUDGE_EVIDENCE_COLS[idx],JUDGE_COLORS[idx]))
 
-            hl_total = len(fdf_hl)
-            hl_page  = min(st.session_state.eval_hl_page, max(0, hl_total - 1))
+                st.markdown(f'<div style="display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px;flex-wrap:wrap"><span style="font-weight:700">Record {hp+1}/{ht}</span><span style="background:{"#fee2e2" if is_fail else "#f0fdf4"};color:{"#dc2626" if is_fail else "#16a34a"};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{"❌ FAIL" if is_fail else "✅ PASS"}</span><span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span><span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span><span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span></div>',unsafe_allow_html=True)
 
-            if hl_total > 0:
-                row = fdf_hl.iloc[hl_page]
-                is_fail = row.get("Status","") == "Fail"
-                failed_judges = [JUDGE_NAMES[i] for i, nc in enumerate(JUDGE_NORM_COLS)
-                                 if nc in row and float(row.get(nc, 0)) >= THRESHOLD]
-
-                # Badge strip
-                st.markdown(
-                    f'<div style="display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px;flex-wrap:wrap">'
-                    f'<span style="font-size:12px;font-weight:700">Record {hl_page+1} of {hl_total}</span>'
-                    f'<span style="background:{"#fee2e2" if is_fail else "#f0fdf4"};color:{"#dc2626" if is_fail else "#16a34a"};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid {"#fecaca" if is_fail else "#bbf7d0"}">{"❌ FAIL" if is_fail else "✅ PASS"}</span>'
-                    f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span>'
-                    f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span>'
-                    f'<span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span></div>',
-                    unsafe_allow_html=True)
-
-                # Classification badges
-                cls_html = ""
-                for class_col, label in [("j1_outcome","J1"),("j2_correctness","J2"),("j3_engagement","J3")]:
-                    if class_col in row:
-                        val = row[class_col]
-                        c = "#ef4444" if val in ("NEGATIVE","INCORRECT","REFUSED") else "#f59e0b" if val in ("NEUTRAL","PARTIAL") else "#16a34a"
-                        cls_html += f'<span style="background:{c}15;color:{c};padding:2px 8px;border-radius:12px;font-size:10px;font-weight:700;border:1px solid {c}40;margin-right:6px">{label}: {val}</span>'
-                if cls_html:
-                    st.markdown(f'<div style="margin-bottom:12px">{cls_html}</div>', unsafe_allow_html=True)
-
-                # Actual output with bias highlighting
-                actual_text = str(row.get("Actual Output", ""))
-                if is_fail:
-                    # Collect bias keywords from all judge reasoning fields
-                    bias_kw = set()
-                    stop_words = {"the","a","an","is","was","are","were","be","been","have","has","had","do","does","did","will","would","could","should","may","might","shall","can","for","and","nor","but","or","yet","so","in","on","at","to","of","with","by","from","as","into","through","during","before","after","above","below","between","out","off","over","under","again","further","then","once","no","not","this","that","these","those","it","its","i","me","my","we","our","you","your","he","she","they","them","their","what","which","who","whom","how","than","too","very","just","about"}
-                    for rc in JUDGE_REASON_COLS:
-                        if rc in row:
-                            for w in str(row[rc]).lower().split():
-                                c = w.strip(".,!?;:\"'()[]|")
-                                if len(c) > 3 and c not in stop_words:
-                                    bias_kw.add(c)
-                    highlighted = " ".join(
-                        f'<span style="background:#fecaca;color:#991b1b;padding:1px 5px;border-radius:3px;font-weight:700;border-bottom:2px solid #ef4444">{w}</span>'
-                        if w.lower().strip(".,!?;:\"'()[]") in bias_kw else w
-                        for w in actual_text.split()
-                    ) if bias_kw else actual_text
-
-                    st.markdown(
-                        f'<div style="font-size:10px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🔴 Actual Output <span style="font-weight:400;color:#94a3b8">(red = bias keywords)</span></div>'
-                        f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">{highlighted}</div>',
-                        unsafe_allow_html=True)
+                actual=str(row.get("Actual Output",""))
+                if is_fail and fj:
+                    evs=[str(row.get(ev,"")) for _,_,_,ev,_ in fj]
+                    hl=highlight_bias(actual,evs)
+                    st.markdown(f'<div style="font-size:10px;font-weight:700;color:#991b1b;text-transform:uppercase;margin-bottom:6px">🔴 Actual Output <span style="font-weight:400;color:#94a3b8">(red=bias signals)</span></div><div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">{hl}</div>',unsafe_allow_html=True)
                 else:
-                    st.markdown(
-                        f'<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🟢 Actual Output</div>'
-                        f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">{actual_text}</div>',
-                        unsafe_allow_html=True)
+                    st.markdown(f'<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;margin-bottom:6px">🟢 Actual Output</div><div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">{actual}</div>',unsafe_allow_html=True)
 
-                # ── 12-Judge Breakdown Cards (2 rows of 6) ────────────────────
-                st.markdown('<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px">12-Judge Breakdown</div>', unsafe_allow_html=True)
+                # 5 cards
+                st.markdown('<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:10px">5-Judge Classification</div>',unsafe_allow_html=True)
+                jcols=st.columns(5)
+                for idx in range(5):
+                    dn=JUDGE_COL_NAMES[idx]; rc=JUDGE_REASON_COLS[idx]; ev=JUDGE_EVIDENCE_COLS[idx]
+                    cv=str(row.get(dn,"UNKNOWN")); reason=str(row.get(rc,"—"))[:150]; evidence=str(row.get(ev,""))[:100]
+                    c=cls_color(cv); bg="#fee2e2" if c=="#dc2626" else "#fef9c3" if c=="#d97706" else "#f0fdf4"
+                    jcols[idx].markdown(f'<div style="background:{bg};border-radius:8px;padding:10px;border-top:3px solid {JUDGE_COLORS[idx]}"><div style="font-size:9px;font-weight:700;color:#64748b;margin-bottom:4px">{JUDGE_NAMES[idx]}</div><div style="font-size:13px;font-weight:800;color:{c};margin-bottom:4px">{cv}</div><div style="font-size:10px;color:#475569;line-height:1.4">{reason}</div>{"<div style=font-size:9px;color:#991b1b;font-style:italic;margin-top:4px;border-top:1px solid #e2e8f0;padding-top:4px>"+evidence+"</div>" if evidence.strip() else ""}</div>',unsafe_allow_html=True)
 
-                for row_start in [0, 6]:
-                    rc_cols = st.columns(6)
-                    for i in range(6):
-                        j_idx = row_start + i
-                        if j_idx >= len(JUDGE_DEFS):
-                            break
-                        nc = JUDGE_NORM_COLS[j_idx]
-                        rc = JUDGE_REASON_COLS[j_idx]
-                        v = float(row.get(nc, 0))
-                        fail = v >= THRESHOLD
-                        reason_text = str(row.get(rc, "—"))[:120]
-
-                        # Classification label for j1-j3
-                        cls_label = ""
-                        cls_col = JUDGE_CLASS_COLS[j_idx]
-                        if cls_col and cls_col in row:
-                            cls_label = f'<div style="font-size:9px;font-weight:700;color:#475569;margin:2px 0">{row[cls_col]}</div>'
-
-                        rc_cols[i].markdown(
-                            f'<div style="background:{"#fee2e2" if fail else "#f0fdf4"};'
-                            f'border-radius:8px;padding:8px;border-top:3px solid {JUDGE_COLORS[j_idx]};margin-bottom:6px">'
-                            f'<div style="font-size:9px;font-weight:700;color:#64748b;margin-bottom:2px">{JUDGE_NAMES[j_idx]}</div>'
-                            f'{cls_label}'
-                            f'<div style="font-size:18px;font-weight:800;color:{"#dc2626" if fail else "#16a34a"}">{v:.2f}</div>'
-                            f'<div style="font-size:9px;font-weight:700;color:{"#dc2626" if fail else "#16a34a"};margin:2px 0">{"● FAIL" if fail else "● PASS"}</div>'
-                            f'<div style="font-size:10px;color:#475569;line-height:1.4;margin-top:3px">{reason_text}</div></div>',
-                            unsafe_allow_html=True)
-
-                # Pagination
-                new_hl = render_pagination(hl_page, hl_total, "eval_hl")
-                if new_hl != hl_page:
-                    st.session_state.eval_hl_page = new_hl
-                    st.rerun()
-            else:
-                st.info("No records match the current filter.")
-
-        # ── FAILURE REASONS — BIAS HIGHLIGHTED ───────────────────────────────
-        st.divider()
-        section_label("FAILURE REASONS — BIAS HIGHLIGHTED")
-
-        fail_only = fdf[fdf["Status"] == "Fail"].reset_index(drop=True)
-        if len(fail_only) == 0:
-            st.success("No failures in current filter.")
-        else:
-            fr_total = len(fail_only)
-            if "fr_page" not in st.session_state: st.session_state.fr_page = 0
-            fr_page = min(st.session_state.fr_page, max(0, fr_total - 1))
-
-            row = fail_only.iloc[fr_page]
-            failed_judges = [(JUDGE_NAMES[i], JUDGE_NORM_COLS[i], JUDGE_REASON_COLS[i], JUDGE_COLORS[i])
-                             for i in range(len(JUDGE_DEFS))
-                             if JUDGE_NORM_COLS[i] in row and float(row.get(JUDGE_NORM_COLS[i], 0)) >= THRESHOLD]
-
-            st.markdown(
-                f'<div style="display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px;flex-wrap:wrap">'
-                f'<span style="font-weight:700">Failure {fr_page+1} of {fr_total}</span>'
-                f'<span style="background:#fee2e2;color:#dc2626;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #fecaca">❌ {len(failed_judges)} judge(s) failed</span>'
-                f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span>'
-                f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span>'
-                f'<span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span></div>',
-                unsafe_allow_html=True)
-
-            # Show only failed judges as cards
-            if failed_judges:
-                fj_cols = st.columns(min(6, len(failed_judges)))
-                for i, (jname, nc, rc, jcolor) in enumerate(failed_judges):
-                    v = float(row.get(nc, 0))
-                    reason = str(row.get(rc, "—"))[:150]
-                    fj_cols[i % len(fj_cols)].markdown(
-                        f'<div style="background:#fee2e2;border-radius:8px;padding:10px;border-top:3px solid {jcolor};margin-bottom:6px">'
-                        f'<div style="font-size:10px;font-weight:700;color:#64748b">{jname}</div>'
-                        f'<div style="font-size:20px;font-weight:800;color:#dc2626">{v:.2f}</div>'
-                        f'<div style="font-size:10px;font-weight:700;color:#dc2626;margin:4px 0">● FAIL</div>'
-                        f'<div style="font-size:11px;color:#475569;line-height:1.5">{reason}</div></div>',
-                        unsafe_allow_html=True)
-
-            new_fr = render_pagination(fr_page, fr_total, "fr")
-            if new_fr != fr_page:
-                st.session_state.fr_page = new_fr
-                st.rerun()
+                np3=render_pagination(hp,ht,"eval_hl")
+                if np3!=hp: st.session_state.eval_hl_page=np3; st.rerun()
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
-#
-#  CHANGE 5: Replace the ENTIRE `elif page == "analysis":` block.
-#
-# ═══════════════════════════════════════════════════════════════════════════════
-
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: ANALYSIS
+# ══════════════════════════════════════════════════════════════════════════════
 elif page == "analysis":
-    page_header("📊 Analysis — 12-Judge Fairness Gap Dashboard",
-                "Group-level gap analysis, classification distributions, and per-judge breakdowns.")
+    page_header("📊 Analysis — Fairness Gap Dashboard","Classification gaps, distributions, and bias patterns across 5 judges.")
+    if st.session_state.eval_df is None: st.warning("⬅ Complete Evaluation first."); st.stop()
 
-    if st.session_state.eval_df is None:
-        st.warning("⬅ Complete the Evaluation step first."); st.stop()
+    edf=st.session_state.eval_df; fail_df=edf[edf["Status"]=="Fail"]
+    categories=sorted(edf["Category"].dropna().unique().tolist())
+    subtypes=sorted(edf["Subtype"].dropna().unique().tolist())
+    disp_cls_cols=[c for c in JUDGE_COL_NAMES if c in edf.columns]
 
-    edf = st.session_state.eval_df
-    fail_df = edf[edf["Status"]=="Fail"]
-    norm_cols = [c for c in JUDGE_NORM_COLS if c in edf.columns]
-    categories = sorted(edf["Category"].dropna().unique().tolist())
+    # Internal col name lookup (display→internal)
+    _d2i=dict(zip(JUDGE_COL_NAMES,JUDGE_CLASS_COLS))
 
-    # ── KPIs ──────────────────────────────────────────────────────────────────
-    cols = st.columns(6)
-    for col, (lbl, val), clr in zip(cols, [
-        ("Total Tests", len(edf)), ("Failed", len(fail_df)),
-        ("Failure Rate", f"{len(fail_df)/max(1,len(edf))*100:.1f}%"),
-        ("Categories", edf["Category"].nunique()),
-        ("Subtypes", edf["Subtype"].nunique()), ("Judges", 12)],
-        ["#2563eb","#ef4444","#f59e0b","#6366f1","#06b6d4","#10b981"]):
-        col.markdown(f'<div class="kpi-card" style="border-left-color:{clr};text-align:center"><div class="kpi-label">{lbl}</div><div class="kpi-value">{val}</div></div>', unsafe_allow_html=True)
+    # KPIs
+    cols=st.columns(6)
+    for col,(lbl,val),clr in zip(cols,[("Total",len(edf)),("Failed",len(fail_df)),("Fail Rate",f"{len(fail_df)/max(1,len(edf))*100:.1f}%"),("Categories",edf["Category"].nunique()),("Subtypes",edf["Subtype"].nunique()),("Judges",5)],["#2563eb","#ef4444","#f59e0b","#6366f1","#06b6d4","#10b981"]):
+        col.markdown(f'<div class="kpi-card" style="border-left-color:{clr};text-align:center"><div class="kpi-label">{lbl}</div><div class="kpi-value">{val}</div></div>',unsafe_allow_html=True)
 
-    _, dc = st.columns([3,1])
-    with dc:
-        green_download("⬇ Download Full Results", to_excel_bytes(edf), "bias_results_12j.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_ana")
+    _,dc=st.columns([3,1])
+    with dc: green_download("⬇ Full Results",to_excel_bytes(edf),"bias_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_ana")
 
-    # ── GAP ANALYSIS TABLE ────────────────────────────────────────────────────
+    # ── GAP TABLE ─────────────────────────────────────────────────────────────
     st.divider()
-    gap_group = st.selectbox("Gap Analysis Grouping", ["Subtype","Category","A_Code","Bias Type"], key="gap_grp")
-    section_label(f"FAIRNESS GAP SCORES BY {gap_group.upper()} (Highest group − Lowest group)")
+    gg=st.selectbox("Group By",["Subtype","Category","A_Code","Bias Type"],key="gap_grp")
+    section_label(f"FAIRNESS GAP BY {gg.upper()} — Bad Rate (Highest − Lowest)")
 
-    gap_rows = compute_all_gaps(edf, gap_group)
-    gap_df = pd.DataFrame(gap_rows).sort_values("Gap", ascending=False)
+    # Need to compute gaps on internal cols but edf has display cols → map back
+    edf_internal=edf.copy()
+    i2d=dict(zip(JUDGE_CLASS_COLS,JUDGE_COL_NAMES))
+    d2i=dict(zip(JUDGE_COL_NAMES,JUDGE_CLASS_COLS))
+    for dn,ic in d2i.items():
+        if dn in edf_internal.columns and ic not in edf_internal.columns:
+            edf_internal[ic]=edf_internal[dn]
 
-    def style_gap(val):
-        try:
-            v = float(val)
-            if v >= 0.30: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
-            if v >= 0.15: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
-            return "background-color:#dcfce7;color:#16a34a"
-        except: return ""
+    gap_rows=compute_all_gaps(edf_internal,gg)
+    if gap_rows:
+        gdf=pd.DataFrame(gap_rows).sort_values("Gap",ascending=False)
+        gd=gdf[["Judge","Gap","Highest Group","Highest Value","Lowest Group","Lowest Value"]].copy()
+        gd["Gap (%)"]=( gd["Gap"]*100).round(1); gd["Highest (%)"]=( gd["Highest Value"]*100).round(1); gd["Lowest (%)"]=( gd["Lowest Value"]*100).round(1)
+        gf=gd[["Judge","Gap (%)","Highest Group","Highest (%)","Lowest Group","Lowest (%)"]].copy()
 
-    gap_disp = gap_df[["Judge","Gap","Highest Group","Highest Value","Lowest Group","Lowest Value"]].copy()
-    gap_disp["Gap (%)"] = (gap_disp["Gap"]*100).round(1)
-    gap_disp["Highest (%)"] = (gap_disp["Highest Value"]*100).round(1)
-    gap_disp["Lowest (%)"] = (gap_disp["Lowest Value"]*100).round(1)
-    gap_disp_final = gap_disp[["Judge","Gap (%)","Highest Group","Highest (%)","Lowest Group","Lowest (%)"]].copy()
-    st.dataframe(gap_disp_final.style.applymap(style_gap, subset=["Gap (%)"]),
-                 use_container_width=True, height=fit_height(gap_disp_final))
-
-    green_download("⬇ Download Gap Analysis", to_excel_bytes(gap_disp_final), "gap_analysis.xlsx",
-                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gap")
-
-    # ── GAP BAR CHART ─────────────────────────────────────────────────────────
-    st.divider()
-    section_label("GAP VISUALIZATION — ALL JUDGES")
-
-    fig_gap = go.Figure(go.Bar(
-        x=gap_disp_final["Judge"], y=gap_disp_final["Gap (%)"],
-        marker_color=[r.get("Judge Color","#94a3b8") for r in gap_rows] if gap_rows else [],
-        text=gap_disp_final["Gap (%)"].apply(lambda v: f"{v:.1f}%"), textposition="outside"))
-    fig_gap.add_hline(y=20, line_dash="dash", line_color="#f59e0b", annotation_text="20% Threshold")
-    fig_gap.update_layout(**PLOT_LAYOUT, height=400, xaxis_tickangle=-35,
-                          yaxis=dict(gridcolor="#f1f5f9", title="Gap (%)"))
-    st.plotly_chart(fig_gap, use_container_width=True)
-
-    # ── CLASSIFICATION DISTRIBUTIONS ──────────────────────────────────────────
-    st.divider()
-    section_label("CLASSIFICATION DISTRIBUTION BY SUBTYPE")
-
-    for class_col, title, vals, bad_val in [
-        ("j1_outcome",     "J1: Demographic Parity Outcomes",  ["POSITIVE","NEUTRAL","NEGATIVE"],  "NEGATIVE"),
-        ("j2_correctness", "J2: Equalized Odds Correctness",   ["CORRECT","PARTIAL","INCORRECT"],  "INCORRECT"),
-        ("j3_engagement",  "J3: Refusal Rate Engagement",      ["HELPED","PARTIAL","REFUSED"],     "REFUSED"),
-    ]:
-        if class_col not in edf.columns: continue
-        st.markdown(f"**{title}**")
-        cross = pd.crosstab(edf["Subtype"], edf[class_col], normalize="index").reindex(columns=vals, fill_value=0) * 100
-        fig_cls = go.Figure()
-        colors_map = {"POSITIVE":"#10b981","NEUTRAL":"#f59e0b","NEGATIVE":"#ef4444",
-                      "CORRECT":"#10b981","PARTIAL":"#f59e0b","INCORRECT":"#ef4444",
-                      "HELPED":"#10b981","REFUSED":"#ef4444"}
-        for v in vals:
-            if v in cross.columns:
-                fig_cls.add_trace(go.Bar(name=v, x=cross.index, y=cross[v],
-                                         marker_color=colors_map.get(v,"#94a3b8")))
-        fig_cls.update_layout(**PLOT_LAYOUT, barmode="stack", height=350,
-                              legend=dict(font_size=10, orientation="h", y=-0.25),
-                              xaxis_tickangle=-35, yaxis=dict(title="%", gridcolor="#f1f5f9"))
-        st.plotly_chart(fig_cls, use_container_width=True)
-
-    # ── AVG NORMALIZED SCORE BY CATEGORY ──────────────────────────────────────
-    st.divider()
-    c1, c2 = st.columns(2)
-    with c1:
-        section_label("AVG NORMALIZED SCORE BY CATEGORY")
-        if norm_cols:
-            ca = edf.groupby("Category")[norm_cols].mean().reset_index()
-            ca["short"] = ca["Category"].str.split(" ").str[0]
-            fig = go.Figure()
-            for i, nc in enumerate(norm_cols):
-                fig.add_trace(go.Bar(name=JUDGE_NAMES[i] if i < len(JUDGE_NAMES) else nc,
-                                     x=ca["short"], y=ca[nc],
-                                     marker_color=JUDGE_COLORS[i] if i < len(JUDGE_COLORS) else "#94a3b8"))
-            fig.update_layout(**PLOT_LAYOUT, barmode="group", height=360,
-                              legend=dict(font_size=8, orientation="h", y=-0.3),
-                              yaxis=dict(gridcolor="#f1f5f9"))
-            st.plotly_chart(fig, use_container_width=True)
-
-    with c2:
-        section_label("FAILURE RATE BY CATEGORY")
-        cf = edf.groupby("Category").apply(lambda x: (x["Status"]=="Fail").sum()/len(x)).reset_index(name="rate")
-        cf["short"] = cf["Category"].str.split(" ").str[0]
-        fig2 = go.Figure(go.Bar(
-            x=cf["rate"], y=cf["short"], orientation="h",
-            marker_color=cf["rate"].apply(score_color),
-            text=cf["rate"].apply(lambda v: f"{v*100:.0f}%"), textposition="outside"))
-        fig2.add_vline(x=THRESHOLD, line_dash="dash", line_color="#f59e0b", annotation_text="Threshold")
-        fig2.update_layout(**PLOT_LAYOUT, height=360, xaxis=dict(range=[0,1.2], gridcolor="#f1f5f9"))
-        st.plotly_chart(fig2, use_container_width=True)
-
-    # ── CATEGORY × JUDGE HEATMAP ─────────────────────────────────────────────
-    st.divider()
-    section_label("CATEGORY × JUDGE HEATMAP (Normalized Scores)")
-    hd = []
-    short_names = [jn.split(" ")[0][:8] for jn in JUDGE_NAMES]
-    for cat in categories:
-        row_data = {"Category": cat}
-        for i, nc in enumerate(norm_cols):
-            row_data[short_names[i] if i < len(short_names) else nc] = round(edf[edf["Category"]==cat][nc].mean(), 3)
-        hd.append(row_data)
-    hdf = pd.DataFrame(hd).set_index("Category")
-    if not hdf.empty:
-        fh = go.Figure(go.Heatmap(
-            z=hdf.values, x=hdf.columns, y=hdf.index,
-            colorscale=[[0,"#f0fdf4"],[0.2,"#fefce8"],[0.4,"#fef2f2"],[1,"#ef4444"]],
-            text=np.round(hdf.values, 3), texttemplate="%{text}",
-            textfont=dict(size=10, color="#0f172a"), zmin=0, zmax=0.5))
-        fh.update_layout(**PLOT_LAYOUT, height=max(300, len(categories)*30+80),
-                         xaxis=dict(side="top", tickangle=-35), yaxis=dict(autorange="reversed"))
-        st.plotly_chart(fh, use_container_width=True)
-
-    # ── CATEGORY RADAR ────────────────────────────────────────────────────────
-    st.divider()
-    c3, c4 = st.columns(2)
-    with c3:
-        section_label("CATEGORY RADAR")
-        sel_cat = st.selectbox("Category", categories, key="ana_r")
-        if norm_cols:
-            cv = edf[edf["Category"]==sel_cat][norm_cols].mean()
-            theta = [JUDGE_NAMES[i][:10] if i < len(JUDGE_NAMES) else nc for i, nc in enumerate(norm_cols)]
-            theta_cyc = theta + [theta[0]]
-            fr = go.Figure(go.Scatterpolar(
-                r=cv.tolist() + [cv.iloc[0]], theta=theta_cyc, fill="toself",
-                fillcolor="rgba(37,99,235,0.1)", line=dict(color="#2563eb", width=2)))
-            fr.update_layout(
-                polar=dict(radialaxis=dict(visible=True, range=[0,0.6], gridcolor="#e2e8f0"),
-                           angularaxis=dict(gridcolor="#e2e8f0")),
-                paper_bgcolor="white", font=dict(color="#334155", size=9),
-                height=360, margin=dict(l=40, r=40, t=20, b=20))
-            st.plotly_chart(fr, use_container_width=True)
-
-    with c4:
-        section_label("TOP HIGH-RISK SUBTYPES")
-        if norm_cols:
-            sr = edf.groupby("Subtype")[norm_cols].mean()
-            sr["Max Score"] = sr.max(axis=1)
-            sr = sr.sort_values("Max Score", ascending=False).head(10)
-            f4 = go.Figure(go.Bar(
-                x=sr["Max Score"], y=sr.index, orientation="h",
-                marker_color=[score_color(v) for v in sr["Max Score"]],
-                text=[f"{v:.2f}" for v in sr["Max Score"]], textposition="outside"))
-            f4.add_vline(x=THRESHOLD, line_dash="dash", line_color="#f59e0b")
-            f4.update_layout(**PLOT_LAYOUT, height=360, xaxis=dict(range=[0,0.8], gridcolor="#f1f5f9"))
-            st.plotly_chart(f4, use_container_width=True)
-
-    # ── PASS/FAIL + SCORE DISTRIBUTION ────────────────────────────────────────
-    st.divider()
-    c5, c6 = st.columns(2)
-    with c5:
-        section_label("PASS / FAIL DISTRIBUTION")
-        fp = go.Figure(go.Pie(
-            labels=["Pass","Fail"], values=[len(edf)-len(fail_df), len(fail_df)],
-            hole=0.55, marker=dict(colors=["#10b981","#ef4444"]),
-            textinfo="label+percent", textfont_size=12))
-        fp.update_layout(**PLOT_LAYOUT, height=300, showlegend=False)
-        st.plotly_chart(fp, use_container_width=True)
-    with c6:
-        section_label("NORMALIZED SCORE DISTRIBUTION (All Judges)")
-        bl = ["0–0.1","0.1–0.2","0.2–0.3","0.3–0.4","0.4+"]
-        dd = {}
-        for i, nc in enumerate(norm_cols):
-            name = JUDGE_NAMES[i] if i < len(JUDGE_NAMES) else nc
-            dd[name] = [0]*5
-            for v in edf[nc]:
-                dd[name][0 if v<0.1 else 1 if v<0.2 else 2 if v<0.3 else 3 if v<0.4 else 4] += 1
-        fd = go.Figure()
-        for i, (name, counts) in enumerate(dd.items()):
-            fd.add_trace(go.Bar(name=name, x=bl, y=counts,
-                                marker_color=JUDGE_COLORS[i] if i < len(JUDGE_COLORS) else "#94a3b8"))
-        fd.update_layout(**PLOT_LAYOUT, barmode="stack", height=300,
-                         legend=dict(font_size=8, orientation="h", y=-0.35),
-                         yaxis=dict(gridcolor="#f1f5f9"))
-        st.plotly_chart(fd, use_container_width=True)
-
-    # ── SUBTYPE RISK TABLE ────────────────────────────────────────────────────
-    st.divider()
-    sr_h, sr_dl = st.columns([3,1])
-    with sr_h: section_label("SUBTYPE RISK TABLE")
-    if norm_cols:
-        sa = edf.groupby("Subtype")[norm_cols].mean()
-        sa.columns = [JUDGE_NAMES[i][:12] if i < len(JUDGE_NAMES) else c for i, c in enumerate(sa.columns)]
-        sa["Max Score"] = sa.max(axis=1)
-        sa = sa.sort_values("Max Score", ascending=False)
-        with sr_dl:
-            green_download("⬇ Download", to_excel_bytes(sa.reset_index()), "subtype_risk_12j.xlsx",
-                           "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_sub_risk")
-
-        def cc(val):
+        def sg(v):
             try:
-                v = float(val)
-                if v >= 0.4: return "background-color:#fee2e2;color:#dc2626"
-                if v >= 0.2: return "background-color:#fef9c3;color:#ca8a04"
+                x=float(v)
+                if x>=30: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+                if x>=15: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
                 return "background-color:#dcfce7;color:#16a34a"
             except: return ""
-        st.dataframe(sa.style.applymap(cc), use_container_width=True, height=fit_height(sa))
+        st.dataframe(gf.style.applymap(sg,subset=["Gap (%)"]),use_container_width=True,height=fit_height(gf))
+        green_download("⬇ Gap Analysis",to_excel_bytes(gf),"gap_analysis.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_gap")
 
-    # ── DOWNLOAD ALL ──────────────────────────────────────────────────────────
+        # Gap bar chart
+        st.divider(); section_label("GAP VISUALIZATION")
+        fig=go.Figure(go.Bar(x=gf["Judge"],y=gf["Gap (%)"],marker_color=[r["Color"] for r in gap_rows],text=gf["Gap (%)"].apply(lambda v: f"{v:.1f}%"),textposition="outside"))
+        fig.add_hline(y=20,line_dash="dash",line_color="#f59e0b",annotation_text="20%")
+        fig.update_layout(**PLOT_LAYOUT,height=380,xaxis_tickangle=-25,yaxis=dict(gridcolor="#f1f5f9",title="Gap (%)"))
+        st.plotly_chart(fig,use_container_width=True)
+    else:
+        st.info("Not enough groups.")
+
+    # ── CLASSIFICATION DISTRIBUTION BY SUBTYPE ────────────────────────────────
+    st.divider(); section_label("CLASSIFICATION DISTRIBUTION BY SUBTYPE")
+    for idx,(dn,jname,jcolor) in enumerate(zip(JUDGE_COL_NAMES,JUDGE_NAMES,JUDGE_COLORS)):
+        if dn not in edf.columns: continue
+        icc=JUDGE_CLASS_COLS[idx]
+        gv=JUDGE_GOOD.get(icc,[]); mv=JUDGE_MID.get(icc,[]); bv=JUDGE_BAD.get(icc,[])
+        all_v=gv+mv+bv
+        st.markdown(f"**{jname}**")
+        cross=pd.crosstab(edf["Subtype"],edf[dn],normalize="index").reindex(columns=all_v,fill_value=0)*100
+        fg=go.Figure()
+        for v in all_v:
+            if v not in cross.columns: continue
+            c="#16a34a" if v in gv else "#ef4444" if v in bv else "#f59e0b"
+            fg.add_trace(go.Bar(name=v,x=cross.index,y=cross[v],marker_color=c))
+        fg.update_layout(**PLOT_LAYOUT,barmode="stack",height=320,legend=dict(font_size=9,orientation="h",y=-0.25),xaxis_tickangle=-35,yaxis=dict(title="%",gridcolor="#f1f5f9"))
+        st.plotly_chart(fg,use_container_width=True)
+
+    # ── FAILURE RATE + PIE ────────────────────────────────────────────────────
     st.divider()
-    section_label("DOWNLOAD ALL REPORTS")
-    st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:20px 24px;">', unsafe_allow_html=True)
-    dl_cols = st.columns(4)
-    with dl_cols[0]:
-        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">📊</div><div style="font-size:12px;font-weight:700;margin:4px 0">Full 12-Judge Results</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">All records, all judge scores</div></div>', unsafe_allow_html=True)
-        green_download("⬇ bias_results.xlsx", to_excel_bytes(edf), "bias_results_12j.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_bias")
-    with dl_cols[1]:
-        st.markdown(f'<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">❌</div><div style="font-size:12px;font-weight:700;margin:4px 0">Failures Only</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">{len(fail_df)} failed records</div></div>', unsafe_allow_html=True)
-        green_download("⬇ failures.xlsx", to_excel_bytes(fail_df), "failures_12j.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_fail")
-    with dl_cols[2]:
-        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">📈</div><div style="font-size:12px;font-weight:700;margin:4px 0">Gap Analysis</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Per-judge fairness gaps</div></div>', unsafe_allow_html=True)
-        green_download("⬇ gap_analysis.xlsx", to_excel_bytes(gap_disp_final), "gap_analysis.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_gap")
-    with dl_cols[3]:
-        cat_summary = edf.groupby("Category").agg(Total=("id","count"), Failed=("Status", lambda x:(x=="Fail").sum())).reset_index()
-        cat_summary["Failure Rate"] = (cat_summary["Failed"]/cat_summary["Total"]).round(3)
-        st.markdown('<div style="text-align:center;padding:12px 8px 8px"><div style="font-size:22px">🗂</div><div style="font-size:12px;font-weight:700;margin:4px 0">Category Summary</div><div style="font-size:10px;color:#64748b;margin-bottom:10px">Failure rates by category</div></div>', unsafe_allow_html=True)
-        green_download("⬇ category_summary.xlsx", to_excel_bytes(cat_summary), "category_summary.xlsx",
-                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_all_cat")
-    st.markdown('</div>', unsafe_allow_html=True)
+    c1,c2=st.columns(2)
+    with c1:
+        section_label("FAILURE RATE BY CATEGORY")
+        cf2=edf.groupby("Category").apply(lambda x:(x["Status"]=="Fail").sum()/max(1,len(x))).reset_index(name="rate")
+        fig2=go.Figure(go.Bar(x=cf2["rate"],y=cf2["Category"],orientation="h",marker_color=cf2["rate"].apply(lambda v:"#ef4444" if v>=0.4 else "#f59e0b" if v>=0.2 else "#16a34a"),text=cf2["rate"].apply(lambda v: f"{v*100:.0f}%"),textposition="outside"))
+        fig2.add_vline(x=0.2,line_dash="dash",line_color="#f59e0b")
+        fig2.update_layout(**PLOT_LAYOUT,height=max(300,len(cf2)*30+60),xaxis=dict(range=[0,1.2],gridcolor="#f1f5f9"))
+        st.plotly_chart(fig2,use_container_width=True)
+    with c2:
+        section_label("PASS / FAIL")
+        fp=go.Figure(go.Pie(labels=["Pass","Fail"],values=[len(edf)-len(fail_df),len(fail_df)],hole=0.55,marker=dict(colors=["#10b981","#ef4444"]),textinfo="label+percent"))
+        fp.update_layout(**PLOT_LAYOUT,height=300,showlegend=False)
+        st.plotly_chart(fp,use_container_width=True)
+
+    # ── HEATMAP ───────────────────────────────────────────────────────────────
+    st.divider(); section_label("CATEGORY × JUDGE BAD-RATE HEATMAP (%)")
+    hd=[]
+    for cat in categories:
+        cd=edf[edf["Category"]==cat]; r={"Category":cat}
+        for idx,(dn,jn) in enumerate(zip(JUDGE_COL_NAMES,JUDGE_NAMES)):
+            icc=JUDGE_CLASS_COLS[idx]; bad=JUDGE_BAD.get(icc,[])
+            r[jn]=round(cd[dn].isin(bad).sum()/max(1,len(cd))*100,1) if dn in cd.columns else 0
+        hd.append(r)
+    hdf=pd.DataFrame(hd).set_index("Category")
+    if not hdf.empty:
+        fh=go.Figure(go.Heatmap(z=hdf.values,x=hdf.columns,y=hdf.index,colorscale=[[0,"#f0fdf4"],[0.15,"#fefce8"],[0.3,"#fef2f2"],[1,"#ef4444"]],text=hdf.values,texttemplate="%{text}%",textfont=dict(size=11,color="#0f172a"),zmin=0,zmax=100))
+        fh.update_layout(**PLOT_LAYOUT,height=max(280,len(categories)*35+80),xaxis=dict(side="top"),yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fh,use_container_width=True)
+
+    # ── RADAR + TOP RISK ──────────────────────────────────────────────────────
+    st.divider()
+    c3,c4=st.columns(2)
+    with c3:
+        section_label("CATEGORY RADAR — BAD RATE")
+        sc=st.selectbox("Category",categories,key="ana_r")
+        cd=edf[edf["Category"]==sc]
+        if not cd.empty:
+            vals=[]
+            for idx,dn in enumerate(JUDGE_COL_NAMES):
+                icc=JUDGE_CLASS_COLS[idx]; bad=JUDGE_BAD.get(icc,[])
+                vals.append(cd[dn].isin(bad).sum()/max(1,len(cd))*100 if dn in cd.columns else 0)
+            th=[jn[:12] for jn in JUDGE_NAMES]; th2=th+[th[0]]; v2=vals+[vals[0]]
+            fr=go.Figure(go.Scatterpolar(r=v2,theta=th2,fill="toself",fillcolor="rgba(239,68,68,0.1)",line=dict(color="#ef4444",width=2)))
+            fr.update_layout(polar=dict(radialaxis=dict(visible=True,range=[0,100],gridcolor="#e2e8f0",ticksuffix="%"),angularaxis=dict(gridcolor="#e2e8f0")),paper_bgcolor="white",height=360,margin=dict(l=40,r=40,t=20,b=20))
+            st.plotly_chart(fr,use_container_width=True)
+    with c4:
+        section_label("TOP HIGH-RISK SUBTYPES")
+        sr=edf.groupby("Subtype").apply(lambda g:(g["Status"]=="Fail").sum()/max(1,len(g))*100).sort_values(ascending=False).head(10)
+        if not sr.empty:
+            f4=go.Figure(go.Bar(x=sr.values,y=sr.index,orientation="h",marker_color=[("#ef4444" if v>=40 else "#f59e0b" if v>=20 else "#16a34a") for v in sr.values],text=[f"{v:.0f}%" for v in sr.values],textposition="outside"))
+            f4.add_vline(x=20,line_dash="dash",line_color="#f59e0b")
+            f4.update_layout(**PLOT_LAYOUT,height=360,xaxis=dict(range=[0,110],gridcolor="#f1f5f9",title="Fail %"))
+            st.plotly_chart(f4,use_container_width=True)
+
+    # ── SUBTYPE RISK TABLE ────────────────────────────────────────────────────
+    st.divider(); section_label("SUBTYPE × JUDGE BAD RATE TABLE (%)")
+    sjd=[]
+    for sub in subtypes:
+        sd=edf[edf["Subtype"]==sub]; r={"Subtype":sub,"Total":len(sd),"Fail Rate":round((sd["Status"]=="Fail").sum()/max(1,len(sd))*100,1)}
+        for idx,(dn,jn) in enumerate(zip(JUDGE_COL_NAMES,JUDGE_NAMES)):
+            icc=JUDGE_CLASS_COLS[idx]; bad=JUDGE_BAD.get(icc,[])
+            r[jn]=round(sd[dn].isin(bad).sum()/max(1,len(sd))*100,1) if dn in sd.columns else 0
+        sjd.append(r)
+    sjdf=pd.DataFrame(sjd).sort_values("Fail Rate",ascending=False)
+    def cp(v):
+        try:
+            x=float(v)
+            if x>=40: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+            if x>=20: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+            return "background-color:#dcfce7;color:#16a34a"
+        except: return ""
+    jpct=[jn for jn in JUDGE_NAMES if jn in sjdf.columns]
+    st.dataframe(sjdf.style.applymap(cp,subset=["Fail Rate"]+jpct),use_container_width=True,height=fit_height(sjdf))
+    _,srdl=st.columns([3,1])
+    with srdl: green_download("⬇ Subtype Risk",to_excel_bytes(sjdf),"subtype_risk.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_sr")
+
+    # ── CO-OCCURRENCE ─────────────────────────────────────────────────────────
+    st.divider(); section_label("JUDGE CO-OCCURRENCE — WHICH FAIL TOGETHER?")
+    if len(fail_df)>0:
+        cod=pd.DataFrame()
+        for idx,(dn,jn) in enumerate(zip(JUDGE_COL_NAMES,JUDGE_NAMES)):
+            icc=JUDGE_CLASS_COLS[idx]; bad=JUDGE_BAD.get(icc,[])
+            cod[jn]=edf[dn].isin(bad).astype(int) if dn in edf.columns else 0
+        cm=cod.corr().round(2)
+        fco=go.Figure(go.Heatmap(z=cm.values,x=cm.columns,y=cm.index,colorscale=[[0,"#f0fdf4"],[0.3,"#fefce8"],[0.6,"#fef2f2"],[1,"#ef4444"]],text=cm.values,texttemplate="%{text}",textfont=dict(size=12,color="#0f172a"),zmin=0,zmax=1))
+        fco.update_layout(**PLOT_LAYOUT,height=350,xaxis=dict(side="top"),yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fco,use_container_width=True)
+
+    # ── DOWNLOADS ─────────────────────────────────────────────────────────────
+    st.divider(); section_label("DOWNLOAD ALL")
+    dl=st.columns(4)
+    with dl[0]: green_download("⬇ Full Results",to_excel_bytes(edf),"bias_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a1")
+    with dl[1]: green_download("⬇ Failures",to_excel_bytes(fail_df),"failures.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a2")
+    with dl[2]:
+        if gap_rows: green_download("⬇ Gaps",to_excel_bytes(gf),"gaps.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a3")
+    with dl[3]: green_download("⬇ Subtype Risk",to_excel_bytes(sjdf),"subtype_risk.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a4")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: LLM INSIGHTS
@@ -2231,5 +1619,4 @@ elif page == "insights":
                 green_download("⬇ Download Recommendations", to_excel_bytes(pd.DataFrame(rec_rows)),
                                "governance_recommendations.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gov")
-
 
