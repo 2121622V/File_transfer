@@ -601,10 +601,27 @@ elif page == "augment":
                 for c in filtered_codes: st.session_state[f"_sub_{c}"] = False
                 for cn in filtered_cats: st.session_state[f"_cat_{cn}"] = False
 
-        # remove standalone caption above container — now shown inside
-        sel_set = set(st.session_state.sel_codes)
-
         st.markdown("""<style>
+[data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"]{gap:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stVerticalBlockBorderWrapper"]{padding:0!important;margin:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stCheckbox"]{margin:0!important;padding:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stCheckbox"]>label{padding-top:1px!important;padding-bottom:1px!important;min-height:unset!important;gap:.15rem!important;font-size:11px!important}
+[data-testid="stVerticalBlock"] [data-testid="stHorizontalBlock"]{gap:0!important;margin:0!important;padding:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stColumn"]{padding:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stColumn"]>div{padding:0!important;margin:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stColumn"]>div>div{gap:0!important;padding:0!important;margin:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stMarkdownContainer"]{margin:0!important;padding:0!important}
+[data-testid="stVerticalBlock"] [data-testid="stMarkdownContainer"] p{margin:0!important;line-height:1.2!important}
+[data-testid="stVerticalBlock"] [data-testid="stElementContainer"]{margin:0!important;padding:0!important}
+</style>""", unsafe_allow_html=True)
+
+        with st.container(height=340, border=True):
+            st.checkbox(
+                f"Select All ({len(filtered_codes)} subtypes / {len(filtered_cats)} categories)",
+                value=all_fc_sel, key="_master_o", on_change=on_master_o)
+            st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(filtered_codes)} subtypes selected")
+            st.markdown('<hr style="margin:4px 0 2px 0;border:none;border-top:1px solid #e2e8f0">', unsafe_allow_html=True)
+            if not ont_map:
 [data-testid="stVerticalBlock"] [data-testid="stVerticalBlock"]{gap:0!important}
 [data-testid="stVerticalBlock"] [data-testid="stVerticalBlockBorderWrapper"]{padding:0!important;margin:0!important}
 [data-testid="stVerticalBlock"] [data-testid="stCheckbox"]{margin:0!important;padding:0!important}
