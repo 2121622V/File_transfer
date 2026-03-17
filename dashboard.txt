@@ -21,6 +21,8 @@ st.markdown("""
 * { font-family: 'Inter', sans-serif; }
 .stApp { background-color: #f1f5f9; color: #0f172a; }
 #MainMenu, footer, header, .stDeployButton { visibility: hidden; }
+[data-testid="stFileUploader"] { border: 1.5px dashed #94a3b8 !important; border-radius: 10px !important; padding: 6px !important; background: #f8fafc !important; }
+[data-testid="stFileUploader"]:hover { border-color: #2563eb !important; background: #eff6ff !important; }
 [data-testid="stSidebar"] { display:block!important;visibility:visible!important;opacity:1!important;transform:none!important;min-width:250px!important;width:250px!important;background:#0f172a!important;z-index:999!important; }
 [data-testid="stSidebar"] > div:first-child { background:#0f172a!important;padding:0!important;overflow-y:auto!important; }
 [data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap:0!important; }
@@ -461,22 +463,17 @@ def extract_judge_result(idx, res):
         }
 
     elif jk == "judge_4_tone_parity":
-        raw_score = res.get("overall_tone_score", None)
-        # handle missing or non-numeric score gracefully
-        try:
-            score = float(raw_score)
-        except (TypeError, ValueError):
-            score = 3.0
-        cls   = _tone_classify(score)
+        cls   = str(res.get("tone_label", "UNKNOWN")).upper().strip()
         flags = res.get("tone_flags", [])
-        warmth  = res.get("warmth",   "—")
-        respect = res.get("respect",  "—")
-        encour  = res.get("encouragement", "—")
-        reg     = res.get("language_register", "—")
-        reason  = (f"Tone score {score:.1f}/5 — "
-                   f"Warmth:{warmth} Respect:{respect} "
-                   f"Encouragement:{encour} Register:{reg}")
-        evidence = "; ".join(flags) if flags else ""
+        reason_raw = res.get("reasoning", "")
+        # Use LLM reasoning directly; fall back to flag-based summary if empty
+        if reason_raw and reason_raw.strip():
+            reason = reason_raw.strip()
+        elif flags:
+            reason = f"Tone issues detected: {'; '.join(str(f) for f in flags)}"
+        else:
+            reason = "No tone issues detected. Response is appropriately respectful."
+        evidence = "; ".join(str(f) for f in flags) if flags else ""
         return {
             "classification": cls,
             "reasoning":      reason,
@@ -484,21 +481,17 @@ def extract_judge_result(idx, res):
         }
 
     elif jk == "judge_5_stereotype":
-        raw_score = res.get("stereotype_score", None)
-        try:
-            score = float(raw_score)
-        except (TypeError, ValueError):
-            score = 1.0
-        cls   = _stereo_classify(score)
+        cls   = str(res.get("stereotype_label", "UNKNOWN")).upper().strip()
         flags = res.get("specific_flags", [])
-        assumptions  = res.get("assumptions",          "—")
-        generalis    = res.get("generalisations",      "—")
-        opportunity  = res.get("opportunity_limiting", "—")
-        unsolicited  = res.get("unsolicited_reference","—")
-        reason  = (f"Stereotype score {score:.1f}/5 — "
-                   f"Assumptions:{assumptions} Generalisations:{generalis} "
-                   f"Opportunity-limiting:{opportunity} Unsolicited-ref:{unsolicited}")
-        evidence = "; ".join(flags) if flags else ""
+        reason_raw = res.get("reasoning", "")
+        # Use LLM reasoning directly; fall back to flag-based summary if empty
+        if reason_raw and reason_raw.strip():
+            reason = reason_raw.strip()
+        elif flags:
+            reason = f"Stereotype signals detected: {'; '.join(str(f) for f in flags)}"
+        else:
+            reason = "No stereotype or bias signals detected in the response."
+        evidence = "; ".join(str(f) for f in flags) if flags else ""
         return {
             "classification": cls,
             "reasoning":      reason,
@@ -818,10 +811,11 @@ elif page == "augment":
                     i for i in st.session_state.sel_questions if i not in fq_idx]
                 for i in fq_idx: st.session_state[f"_q_{i}"] = False
 
-        st.checkbox(f"Select All Questions ({len(fq_idx)})",
-                    value=all_fq_sel, key="_master_q", on_change=on_master_q)
         st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
-        with st.container(height=300):
+        with st.container(height=320, border=True):
+            st.checkbox(f"Select All Questions ({len(fq_idx)})",
+                        value=all_fq_sel, key="_master_q", on_change=on_master_q)
+            st.divider()
             for i, q in filtered_q:
                 def on_q(idx=i):
                     if st.session_state[f"_q_{idx}"]:
@@ -894,7 +888,11 @@ elif page == "augment":
 [data-testid="stVerticalBlock"] [data-testid="stElementContainer"]{margin:0!important;padding:0!important}
 </style>""", unsafe_allow_html=True)
 
-        with st.container(height=300):
+        with st.container(height=320, border=True):
+            st.checkbox(
+                f"Select All ({len(filtered_codes)} subtypes across {len(filtered_cats)} categories)",
+                value=all_fc_sel, key="_master_o", on_change=on_master_o)
+            st.divider()
             if not ont_map:
                 st.info("No ontology loaded.")
             else:
@@ -963,11 +961,11 @@ elif page == "augment":
                             bdr    = "#bfdbfe" if is_chk else "#f1f5f9"
                             st.markdown(
                                 f'<div style="padding:0 0 0 10px;margin-left:8px;'
-                                f'border-left:2px solid {bdr};line-height:1.2">'
+                                f'border-left:2px solid {bdr};line-height:1.4">'
                                 f'<span style="font-family:monospace;background:{chk_bg};'
                                 f'color:{chk_fg};padding:0 4px;border-radius:3px;'
-                                f'font-size:9px;font-weight:600">{code}</span>'
-                                f'<span style="font-size:10px;color:{txt_fg};'
+                                f'font-size:10px;font-weight:600">{code}</span>'
+                                f'<span style="font-size:12px;color:{txt_fg};'
                                 f'font-weight:{"600" if is_chk else "400"};margin-left:5px">'
                                 f'{meta["subtype"]}</span></div>',
                                 unsafe_allow_html=True)
@@ -1119,49 +1117,56 @@ elif page == "augment":
                 st.session_state.aug_highlight_page = cur_page
             if total_pages > 0:
                 row = aug_df.iloc[cur_page]
+                # Row badge
                 st.markdown(
-                    f'<div style="display:flex;align-items:center;gap:10px;background:white;'
-                    f'border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px">'
+                    f'<div style="display:flex;align-items:center;gap:8px;background:white;'
+                    f'border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;margin-bottom:10px">'
                     f'<span style="font-size:12px;font-weight:700;color:#0f172a">Row {cur_page+1} of {total_pages}</span>'
-                    f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span>'
-                    f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span>'
+                    f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span>'
+                    f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span>'
                     f'<span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span>'
                     + (f'<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:20px;'
                        f'font-size:11px;font-weight:600">Var {int(row.get("Variation",1))}</span>'
                        if "Variation" in row.index else "")
                     + '</div>', unsafe_allow_html=True)
 
-                # Roleplay
+                # Original Question (full width, compact)
                 st.markdown(
-                    '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
-                    'padding:16px 20px;margin-bottom:12px">'
-                    '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;'
-                    'letter-spacing:.06em;margin-bottom:10px">🔀 Roleplay Augmentation</div>',
+                    '<div style="font-size:10px;font-weight:700;color:#64748b;'
+                    'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Original Question</div>',
                     unsafe_allow_html=True)
-                lc, rc = st.columns(2)
-                with lc:
-                    st.markdown('<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:4px">Original Question</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">{row.get("original_question","—")}</div>', unsafe_allow_html=True)
-                with rc:
-                    st.markdown('<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">Augmented Roleplay <span style="font-weight:400;color:#94a3b8">(yellow=changes)</span></div>', unsafe_allow_html=True)
-                    st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">{highlight_diff(row.get("original_question",""),row.get("Augmented Roleplay",""))}</div>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;'
+                    f'padding:10px 14px;font-size:13px;line-height:1.6;color:#334155;margin-bottom:10px">'
+                    f'{row.get("original_question","—")}</div>',
+                    unsafe_allow_html=True)
 
-                # Storyline
-                st.markdown(
-                    '<div style="background:white;border:1px solid #e2e8f0;border-radius:10px;'
-                    'padding:16px 20px;margin-bottom:16px">'
-                    '<div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;'
-                    'letter-spacing:.06em;margin-bottom:10px">📖 Storyline Augmentation</div>',
-                    unsafe_allow_html=True)
-                lc2, rc2 = st.columns(2)
-                with lc2:
-                    st.markdown('<div style="font-size:10px;font-weight:700;color:#374151;margin-bottom:4px">Original Question</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">{row.get("original_question","—")}</div>', unsafe_allow_html=True)
-                with rc2:
-                    st.markdown('<div style="font-size:10px;font-weight:700;color:#92400e;margin-bottom:4px">Augmented Storyline <span style="font-weight:400;color:#94a3b8">(yellow=changes)</span></div>', unsafe_allow_html=True)
-                    st.markdown(f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.7;color:#334155;min-height:60px">{highlight_diff(row.get("original_question",""),row.get("Augmented Storyline",""))}</div>', unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)
+                # Roleplay + Storyline side by side
+                lc, rc = st.columns(2, gap="small")
+                with lc:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#1d4ed8;'
+                        'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">'
+                        '🔀 Augmented Roleplay '
+                        '<span style="font-weight:400;color:#94a3b8;font-size:9px">(yellow=changes)</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+                        f'padding:10px 14px;font-size:13px;line-height:1.6;color:#334155;min-height:80px">'
+                        f'{highlight_diff(row.get("original_question",""), row.get("Augmented Roleplay",""))}</div>',
+                        unsafe_allow_html=True)
+                with rc:
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#6d28d9;'
+                        'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">'
+                        '📖 Augmented Storyline '
+                        '<span style="font-weight:400;color:#94a3b8;font-size:9px">(yellow=changes)</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;'
+                        f'padding:10px 14px;font-size:13px;line-height:1.6;color:#334155;min-height:80px">'
+                        f'{highlight_diff(row.get("original_question",""), row.get("Augmented Storyline",""))}</div>',
+                        unsafe_allow_html=True)
 
                 new_page = render_pagination(cur_page, total_pages, "aug_hl")
                 if new_page != cur_page:
