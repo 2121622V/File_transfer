@@ -564,9 +564,9 @@ elif page == "augment":
                 st.session_state.sel_questions = [i for i in st.session_state.sel_questions if i not in fq_idx]
                 for i in fq_idx: st.session_state[f"_q_{i}"] = False
 
-        st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
-        with st.container(height=320, border=True):
+        with st.container(height=340, border=True):
             st.checkbox(f"Select All Questions ({len(fq_idx)})", value=all_fq_sel, key="_master_q", on_change=on_master_q)
+            st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
             st.markdown('<hr style="margin:4px 0;border:none;border-top:1px solid #e2e8f0">', unsafe_allow_html=True)
             for i, q in filtered_q:
                 def on_q(idx=i):
@@ -601,9 +601,7 @@ elif page == "augment":
                 for c in filtered_codes: st.session_state[f"_sub_{c}"] = False
                 for cn in filtered_cats: st.session_state[f"_cat_{cn}"] = False
 
-        n_sel_codes = len([c for c in filtered_codes if c in st.session_state.sel_codes])
-        n_sel_cats  = sum(1 for cat, items in filtered_cats.items() if all(c in st.session_state.sel_codes for c, _ in items))
-        st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(filtered_codes)} subtypes selected")
+        # remove standalone caption above container — now shown inside
         sel_set = set(st.session_state.sel_codes)
 
         st.markdown("""<style>
@@ -620,11 +618,11 @@ elif page == "augment":
 [data-testid="stVerticalBlock"] [data-testid="stElementContainer"]{margin:0!important;padding:0!important}
 </style>""", unsafe_allow_html=True)
 
-        # ONE container — _master_o checkbox is ONLY rendered here, nowhere else
         with st.container(height=340, border=True):
             st.checkbox(
-                f"☑ Select All ({len(filtered_codes)} subtypes / {len(filtered_cats)} categories)",
+                f"Select All ({len(filtered_codes)} subtypes / {len(filtered_cats)} categories)",
                 value=all_fc_sel, key="_master_o", on_change=on_master_o)
+            st.caption(f"{n_sel_cats}/{len(filtered_cats)} categories · {n_sel_codes}/{len(filtered_codes)} subtypes selected")
             st.markdown('<hr style="margin:4px 0 2px 0;border:none;border-top:1px solid #e2e8f0">', unsafe_allow_html=True)
             if not ont_map:
                 st.info("No ontology loaded.")
@@ -1088,12 +1086,25 @@ elif page == "analysis":
     st.dataframe(styled_full,use_container_width=True,height=fit_height(edf))
 
     st.divider(); section_label("DOWNLOAD ALL")
-    dl=st.columns(4)
-    with dl[0]: green_download("⬇ Full Results",to_excel_bytes(edf),"bias_results.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a1")
-    with dl[1]: green_download("⬇ Failures Only",to_excel_bytes(fail_df),"failures.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a2")
+    dl = st.columns(5)
+    with dl[0]: green_download("⬇ Full Results",   to_excel_bytes(edf),     "bias_results.xlsx",  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_a1")
+    with dl[1]: green_download("⬇ Failures Only",  to_excel_bytes(fail_df), "failures.xlsx",      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_a2")
     with dl[2]:
-        if gap_rows: green_download("⬇ Gap Table",to_excel_bytes(gdf_tbl[["Judge","Overall Bad %","Gap %","Highest Category","Highest %","Lowest Category","Lowest %"]]),"gap_analysis.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a3")
-    with dl[3]: green_download("⬇ Subtype Risk",to_excel_bytes(sjdf),"subtype_risk.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a4")
+        if gap_rows:
+            green_download("⬇ Gap Table", to_excel_bytes(gdf_tbl[["Judge","Overall Bad %","Gap %","Highest Category","Highest %","Lowest Category","Lowest %"]]), "gap_analysis.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_a3")
+    with dl[3]: green_download("⬇ Subtype Risk",   to_excel_bytes(sjdf),    "subtype_risk.xlsx",  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_a4")
+    with dl[4]:
+        cat_summary = edf.groupby("Category").agg(
+            Total    =("Status", "count"),
+            Failed   =("Status", lambda x: (x=="Fail").sum()),
+        ).reset_index()
+        cat_summary["Fail Rate %"] = (cat_summary["Failed"] / cat_summary["Total"] * 100).round(1)
+        for dc, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+            bv = _J_BAD.get(dc, [])
+            cat_summary[f"{jn} Bad %"] = cat_summary["Category"].apply(
+                lambda c: round(edf[edf["Category"]==c][dc].isin(bv).sum() / max(1, len(edf[edf["Category"]==c])) * 100, 1)
+                if dc in edf.columns else 0)
+        green_download("⬇ Category Summary", to_excel_bytes(cat_summary), "category_summary.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_a5")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: LLM INSIGHTS
