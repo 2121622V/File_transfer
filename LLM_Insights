@@ -1,16 +1,11 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# LLM  ── replace the existing call_llm function entirely
+# call_llm  ── full replacement (keeps max_completion_tokens as you updated)
 # ═══════════════════════════════════════════════════════════════════════════════
 async def call_llm(prompt, system=None, json_mode=True):
-    """
-    Call Azure OpenAI.  Returns parsed dict (json_mode=True) or str (False).
-    On ANY error returns {} / "" and stores the error message in session state
-    so the UI can surface it.
-    """
     client = AsyncAzureOpenAI(
-        api_key       = st.session_state.azure_key,
-        api_version   = st.session_state.azure_version,
-        azure_endpoint= st.session_state.azure_endpoint,
+        api_key        = st.session_state.azure_key,
+        api_version    = st.session_state.azure_version,
+        azure_endpoint = st.session_state.azure_endpoint,
     )
     msgs = []
     if system:
@@ -23,9 +18,9 @@ async def call_llm(prompt, system=None, json_mode=True):
             kwargs["response_format"] = {"type": "json_object"}
 
         resp = await client.chat.completions.create(
-            model       = st.session_state.azure_deploy,
-            messages    = msgs,
-            max_tokens  = 4000,          # ← was max_completion_tokens (o-series only)
+            model                  = st.session_state.azure_deploy,
+            messages               = msgs,
+            max_completion_tokens  = 4000,
             **kwargs
         )
         raw = resp.choices[0].message.content or ""
@@ -33,37 +28,754 @@ async def call_llm(prompt, system=None, json_mode=True):
         if not json_mode:
             return raw
 
-        # Strip accidental markdown fences before parsing
+        # Strip accidental markdown fences
         cleaned = raw.strip()
         if cleaned.startswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[1:])
+            lines   = cleaned.split("\n")
+            cleaned = "\n".join(lines[1:] if len(lines) > 1 else lines)
         if cleaned.endswith("```"):
-            cleaned = "\n".join(cleaned.split("\n")[:-1])
+            lines   = cleaned.split("\n")
+            cleaned = "\n".join(lines[:-1] if len(lines) > 1 else lines)
         cleaned = cleaned.strip()
+
+        if not cleaned:
+            st.session_state["_llm_last_error"] = "LLM returned empty response body."
+            return {}
 
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError as je:
-            err = f"JSON parse error: {je} | Raw (first 300 chars): {cleaned[:300]}"
-            print("LLM JSON ERROR:", err)
+            err = f"JSON parse error: {je} | Raw (first 400 chars): {cleaned[:400]}"
             st.session_state["_llm_last_error"] = err
             return {}
 
     except Exception as e:
         err = f"{type(e).__name__}: {e}"
-        print("LLM CALL ERROR:", err)
         st.session_state["_llm_last_error"] = err
         return {} if json_mode else ""
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# PAGE: LLM INSIGHTS  ── replace the existing elif page == "insights": block
+# Fallback: call LLM without json_mode then extract JSON manually
+# Used for governance prompt which can be very long and sometimes causes
+# the model to wrap output in prose instead of raw JSON.
 # ═══════════════════════════════════════════════════════════════════════════════
+async def call_llm_with_json_fallback(prompt, system=None):
+    """Try json_mode first; if empty/failed, retry as plain text and parse."""
+    result = await call_llm(prompt, system=system, json_mode=True)
+    if result:
+        return result
+
+    # Retry without json_mode
+    raw = await call_llm(prompt, system=system, json_mode=False)
+    if not raw:
+        return {}
+
+    # Try to extract JSON block from prose response
+    import re
+    raw = str(raw).strip()
+    # Find outermost { ... }
+    match = re.search(r'\{.*\}', raw, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except json.JSONDecodeError:
+            pass
+    st.session_state["_llm_last_error"] = (
+        f"Could not parse JSON from plain-text fallback. "
+        f"Raw (first 400 chars): {raw[:400]}")
+    return {}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: ANALYSIS
+# ══════════════════════════════════════════════════════════════════════════════
+elif page == "analysis":
+    page_header("📊 Analysis Dashboard",
+                "Overall fairness analysis — judge performance, bias patterns, "
+                "and gap breakdown across all records.")
+    if st.session_state.eval_df is None:
+        st.warning("⬅ Complete Evaluation first.")
+        st.stop()
+
+    edf        = st.session_state.eval_df
+    fail_df    = edf[edf["Status"] == "Fail"]
+    pass_df    = edf[edf["Status"] == "Pass"]
+    categories = sorted(edf["Category"].dropna().unique().tolist())
+    subtypes   = sorted(edf["Subtype"].dropna().unique().tolist())
+    n_total    = len(edf)
+
+    # ── KPI STRIP ─────────────────────────────────────────────────────────────
+    k1, k2, k3, k4, k5, k6 = st.columns(6)
+    kpi_data = [
+        ("Total Records",  n_total,                                          "#2563eb"),
+        ("Failed",         len(fail_df),                                     "#ef4444"),
+        ("Pass Rate",      f"{(1-len(fail_df)/max(1,n_total))*100:.1f}%",   "#16a34a"),
+        ("Categories",     edf["Category"].nunique(),                        "#6366f1"),
+        ("Subtypes",       edf["Subtype"].nunique(),                         "#06b6d4"),
+        ("Bias Patterns",  edf["Bias Type"].nunique(),                       "#f59e0b"),
+    ]
+    for col, (lbl, val, clr) in zip([k1,k2,k3,k4,k5,k6], kpi_data):
+        col.markdown(
+            f'<div class="kpi-card" style="border-left-color:{clr};text-align:center">'
+            f'<div class="kpi-label">{lbl}</div>'
+            f'<div class="kpi-value">{val}</div></div>',
+            unsafe_allow_html=True)
+
+    _, dl_col = st.columns([3, 1])
+    with dl_col:
+        green_download("⬇ Full Results", to_excel_bytes(edf), "bias_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_ana")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 1 — OVERALL PASS/FAIL DONUT  +  JUDGE SCORECARD
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("OVERALL RESULTS OVERVIEW")
+
+    ov_left, ov_right = st.columns([1, 2], gap="large")
+
+    with ov_left:
+        n_pass = n_total - len(fail_df)
+        fig_donut = go.Figure(go.Pie(
+            labels=["Pass", "Fail"],
+            values=[n_pass, len(fail_df)],
+            hole=0.68,
+            marker=dict(colors=["#10b981","#ef4444"],
+                        line=dict(color="white", width=3)),
+            textinfo="label+percent",
+            textfont=dict(size=12),
+            pull=[0, 0.05],
+        ))
+        fig_donut.add_annotation(
+            text=f"<b>{(n_pass/max(1,n_total)*100):.0f}%</b><br>Pass Rate",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(size=16, color="#0f172a"))
+        fig_donut.update_layout(
+            **plot_layout(height=280, margin=dict(l=0,r=0,t=10,b=10),
+                          showlegend=True,
+                          legend=dict(orientation="h", y=-0.08, font_size=11)))
+        st.plotly_chart(fig_donut, use_container_width=True)
+
+    with ov_right:
+        judge_splits = []
+        for dc, jname, jcolor in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS):
+            if dc not in edf.columns:
+                continue
+            gv    = _J_GOOD.get(dc, [])
+            mv    = _J_MID.get(dc,  [])
+            bv    = _J_BAD.get(dc,  [])
+            g_pct = edf[dc].isin(gv).sum() / max(1, n_total) * 100
+            m_pct = edf[dc].isin(mv).sum() / max(1, n_total) * 100
+            b_pct = edf[dc].isin(bv).sum() / max(1, n_total) * 100
+            judge_splits.append(dict(judge=jname, good=round(g_pct,1),
+                                     mid=round(m_pct,1), bad=round(b_pct,1)))
+
+        jnames = [j["judge"] for j in judge_splits]
+        fig_jov = go.Figure()
+        fig_jov.add_trace(go.Bar(
+            name="Good / Pass", y=jnames,
+            x=[j["good"] for j in judge_splits],
+            orientation="h", marker_color="#10b981",
+            text=[f"{j['good']:.0f}%" for j in judge_splits],
+            textposition="inside", insidetextanchor="middle",
+            textfont=dict(color="white", size=11)))
+        fig_jov.add_trace(go.Bar(
+            name="Partial / Mid", y=jnames,
+            x=[j["mid"] for j in judge_splits],
+            orientation="h", marker_color="#f59e0b",
+            text=[f"{j['mid']:.0f}%" for j in judge_splits],
+            textposition="inside", insidetextanchor="middle",
+            textfont=dict(color="white", size=11)))
+        fig_jov.add_trace(go.Bar(
+            name="Bad / Fail", y=jnames,
+            x=[j["bad"] for j in judge_splits],
+            orientation="h", marker_color="#ef4444",
+            text=[f"{j['bad']:.0f}%" for j in judge_splits],
+            textposition="inside", insidetextanchor="middle",
+            textfont=dict(color="white", size=11)))
+        fig_jov.update_layout(
+            **plot_layout(
+                barmode="stack", height=280,
+                margin=dict(l=10,r=20,t=10,b=40),
+                legend=dict(orientation="h", y=-0.18, font_size=10),
+                xaxis=dict(range=[0,100], ticksuffix="%",
+                           gridcolor="#f1f5f9", title="% of Records"),
+                yaxis=dict(tickfont=dict(size=11))))
+        st.plotly_chart(fig_jov, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — JUDGE FAIRNESS GAP
+    # Gap = Good% − Bad%  (Mid is NOT part of the gap formula)
+    # 0%  gap = perfect health (all records are good, none bad)
+    # +ve gap = good dominates over bad  (healthy)
+    # -ve gap = bad dominates over good  (critical)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("JUDGE FAIRNESS GAP — GOOD vs BAD RATE ACROSS ALL RECORDS")
+
+    st.markdown(
+        '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
+        'padding:10px 16px;margin-bottom:14px;font-size:12px;color:#1e40af;line-height:1.7">'
+        '<b>Gap = Good% − Bad%</b> (Mid/Partial outcomes are excluded from the gap — '
+        'they represent ambiguous results, not a directional failure). '
+        '<b>Gap = 0%</b> means <b>no bad records at all (perfect)</b> when Good% = 100%, '
+        'or means good and bad are equal when both are non-zero. '
+        'A <b>positive gap</b> means good outcomes dominate; a <b>negative gap</b> means '
+        'bad outcomes dominate. '
+        '<b style="color:#16a34a">Green ≥ +60%</b> &nbsp;·&nbsp; '
+        '<b style="color:#d97706">Amber 0% to +60%</b> &nbsp;·&nbsp; '
+        '<b style="color:#dc2626">Red &lt; 0% (bad &gt; good)</b>'
+        '</div>',
+        unsafe_allow_html=True)
+
+    gap_judge_rows = []
+    for dc, jname, jcolor in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS):
+        if dc not in edf.columns:
+            continue
+        gv    = _J_GOOD.get(dc, [])
+        mv    = _J_MID.get(dc,  [])
+        bv    = _J_BAD.get(dc,  [])
+        g_n   = int(edf[dc].isin(gv).sum())
+        m_n   = int(edf[dc].isin(mv).sum())
+        b_n   = int(edf[dc].isin(bv).sum())
+        g_pct = round(g_n / max(1, n_total) * 100, 1)
+        m_pct = round(m_n / max(1, n_total) * 100, 1)
+        b_pct = round(b_n / max(1, n_total) * 100, 1)
+        gap   = round(g_pct - b_pct, 1)   # Mid excluded from gap formula
+        gap_judge_rows.append(dict(
+            judge    = jname,
+            color    = jcolor,
+            good_n   = g_n,   good_pct  = g_pct,
+            mid_n    = m_n,   mid_pct   = m_pct,
+            bad_n    = b_n,   bad_pct   = b_pct,
+            gap      = gap))
+
+    # Scorecard cards
+    gap_card_cols = st.columns(len(gap_judge_rows))
+    for col, row in zip(gap_card_cols, gap_judge_rows):
+        gap_val = row["gap"]
+        jcolor  = row["color"]
+        # No bad records at all → 0 gap but it is perfect health
+        is_perfect = row["bad_n"] == 0
+        if is_perfect:
+            gap_color = "#16a34a"; gap_bg = "#f0fdf4"; risk_lbl = "🟢 Perfect"
+        elif gap_val >= 60:
+            gap_color = "#16a34a"; gap_bg = "#f0fdf4"; risk_lbl = "🟢 Healthy"
+        elif gap_val >= 0:
+            gap_color = "#d97706"; gap_bg = "#fef9c3"; risk_lbl = "🟡 Monitor"
+        else:
+            gap_color = "#dc2626"; gap_bg = "#fee2e2"; risk_lbl = "🔴 Critical"
+
+        col.markdown(
+            f'<div style="background:{gap_bg};border:1px solid {gap_color}40;'
+            f'border-radius:12px;padding:14px 12px;border-top:3px solid {jcolor};'
+            f'text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.06)">'
+            f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px">'
+            f'{row["judge"]}</div>'
+            f'<div style="font-size:26px;font-weight:800;color:{gap_color}">'
+            f'{"No Gap" if is_perfect else f"{gap_val:+.1f}%"}</div>'
+            f'<div style="font-size:9px;color:#64748b;margin:2px 0 8px">'
+            f'{"All records passed" if is_perfect else "Good − Bad Gap"}</div>'
+            # stacked bar: good / mid / bad
+            f'<div style="background:#e2e8f0;border-radius:3px;height:6px;'
+            f'overflow:hidden;margin-bottom:8px;display:flex">'
+            f'<div style="width:{row["good_pct"]:.0f}%;background:#10b981"></div>'
+            f'<div style="width:{row["mid_pct"]:.0f}%;background:#f59e0b"></div>'
+            f'<div style="width:{row["bad_pct"]:.0f}%;background:#ef4444"></div>'
+            f'</div>'
+            f'<div style="display:flex;justify-content:space-between;font-size:10px">'
+            f'<span style="color:#16a34a">✓ {row["good_pct"]:.0f}%<br>({row["good_n"]})</span>'
+            f'<span style="color:#f59e0b">~ {row["mid_pct"]:.0f}%<br>({row["mid_n"]})</span>'
+            f'<span style="color:#ef4444">✗ {row["bad_pct"]:.0f}%<br>({row["bad_n"]})</span>'
+            f'</div>'
+            f'<div style="font-size:9px;font-weight:700;color:{gap_color};margin-top:8px">'
+            f'{risk_lbl}</div>'
+            f'</div>',
+            unsafe_allow_html=True)
+
+    # Gap diverging chart
+    st.markdown("<br>", unsafe_allow_html=True)
+    gjdf = pd.DataFrame(gap_judge_rows)
+
+    fig_gap_bar = go.Figure()
+    fig_gap_bar.add_trace(go.Bar(
+        name="Good %", x=gjdf["judge"], y=gjdf["good_pct"],
+        marker_color="#10b981",
+        text=gjdf["good_pct"].apply(lambda v: f"{v:.0f}%"),
+        textposition="outside", textfont=dict(size=11)))
+    fig_gap_bar.add_trace(go.Bar(
+        name="Mid %", x=gjdf["judge"], y=gjdf["mid_pct"],
+        marker_color="#f59e0b",
+        text=gjdf["mid_pct"].apply(lambda v: f"{v:.0f}%"),
+        textposition="outside", textfont=dict(size=11)))
+    # Bad shown as negative to create diverging effect
+    fig_gap_bar.add_trace(go.Bar(
+        name="Bad %", x=gjdf["judge"], y=-gjdf["bad_pct"],
+        marker_color="#ef4444",
+        text=gjdf["bad_pct"].apply(lambda v: f"{v:.0f}%"),
+        textposition="outside", textfont=dict(size=11)))
+    # Gap line (Good - Bad only)
+    fig_gap_bar.add_trace(go.Scatter(
+        name="Gap (Good−Bad)", x=gjdf["judge"], y=gjdf["gap"],
+        mode="lines+markers+text",
+        line=dict(color="#2563eb", width=2, dash="dot"),
+        marker=dict(size=9, color="#2563eb"),
+        text=gjdf["gap"].apply(lambda v: "No Gap" if v == 0 else f"{v:+.0f}%"),
+        textposition="top center",
+        textfont=dict(size=11, color="#1d4ed8")))
+    fig_gap_bar.add_hline(y=0, line_color="#94a3b8", line_width=1.5)
+    fig_gap_bar.update_layout(
+        **plot_layout(
+            barmode="group", height=420,
+            margin=dict(l=10,r=10,t=40,b=60),
+            legend=dict(orientation="h", y=-0.18, font_size=10),
+            yaxis=dict(title="% of Records", gridcolor="#f1f5f9",
+                       ticksuffix="%", zeroline=True, zerolinecolor="#94a3b8"),
+            xaxis=dict(tickfont=dict(size=11))))
+    st.plotly_chart(fig_gap_bar, use_container_width=True)
+
+    # Gap summary table
+    gap_tbl = gjdf[["judge","good_pct","mid_pct","bad_pct","gap"]].copy()
+    gap_tbl.columns = ["Judge","Good %","Mid %","Bad %","Gap (Good−Bad) %"]
+
+    def _style_gap(v):
+        try:
+            x = float(v)
+            if x >= 60:  return "background-color:#dcfce7;color:#16a34a;font-weight:700"
+            if x >= 0:   return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+            return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+        except:
+            return ""
+
+    st.dataframe(
+        gap_tbl.style.applymap(_style_gap, subset=["Gap (Good−Bad) %"]),
+        use_container_width=True, height=fit_height(gap_tbl))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 3 — FAILURE RATE BY CATEGORY
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("FAILURE RATE BY CATEGORY")
+
+    cat_grp = edf.groupby("Category").agg(
+        Total  = ("Status", "count"),
+        Failed = ("Status", lambda x: (x=="Fail").sum()),
+        Passed = ("Status", lambda x: (x=="Pass").sum()),
+    ).reset_index()
+    cat_grp["Fail %"] = (cat_grp["Failed"] / cat_grp["Total"] * 100).round(1)
+    cat_grp["Pass %"] = (cat_grp["Passed"] / cat_grp["Total"] * 100).round(1)
+    cat_grp = cat_grp.sort_values("Fail %", ascending=True)
+
+    fig_cat = go.Figure()
+    fig_cat.add_trace(go.Bar(
+        name="Pass", y=cat_grp["Category"], x=cat_grp["Pass %"],
+        orientation="h", marker_color="#10b981",
+        text=cat_grp["Pass %"].apply(lambda v: f"{v:.0f}%"),
+        textposition="inside", insidetextanchor="middle",
+        textfont=dict(color="white", size=10)))
+    fig_cat.add_trace(go.Bar(
+        name="Fail", y=cat_grp["Category"], x=cat_grp["Fail %"],
+        orientation="h", marker_color="#ef4444",
+        text=cat_grp.apply(
+            lambda r: f"{r['Fail %']:.0f}% ({r['Failed']}/{r['Total']})", axis=1),
+        textposition="outside", textfont=dict(size=10)))
+    fig_cat.add_vline(x=20, line_dash="dash", line_color="#f59e0b",
+                      annotation_text="20% threshold",
+                      annotation_position="top right",
+                      annotation_font_size=10)
+    fig_cat.update_layout(
+        **plot_layout(
+            barmode="stack",
+            height=max(300, len(cat_grp)*38+80),
+            margin=dict(l=10,r=160,t=36,b=10),
+            xaxis=dict(range=[0,130], gridcolor="#f1f5f9",
+                       title="% of Records", ticksuffix="%"),
+            legend=dict(orientation="h", y=1.08, font_size=10)))
+    st.plotly_chart(fig_cat, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 4 — CATEGORY × JUDGE HEATMAP
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("CATEGORY × JUDGE BAD-RATE HEATMAP (%)")
+
+    hd = []
+    for cat in categories:
+        cd = edf[edf["Category"] == cat]
+        r  = {"Category": cat}
+        for dc, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+            bv = _J_BAD.get(dc, [])
+            r[jn] = round(cd[dc].isin(bv).sum() / max(1,len(cd)) * 100, 1) \
+                    if dc in cd.columns else 0
+        hd.append(r)
+    hdf = pd.DataFrame(hd).set_index("Category")
+
+    if not hdf.empty:
+        fh = go.Figure(go.Heatmap(
+            z=hdf.values, x=hdf.columns, y=hdf.index,
+            colorscale=[[0,"#f0fdf4"],[0.2,"#fef9c3"],
+                        [0.5,"#fef2f2"],[1,"#ef4444"]],
+            text=[[f"{v:.0f}%" for v in row] for row in hdf.values],
+            texttemplate="%{text}",
+            textfont=dict(size=12, color="#0f172a"),
+            zmin=0, zmax=100,
+            colorbar=dict(title=dict(text="Bad %", side="right"),
+                          ticksuffix="%", len=0.9)))
+        fh.update_layout(
+            **plot_layout(
+                height=max(320, len(categories)*42+100),
+                margin=dict(l=10,r=80,t=60,b=10),
+                xaxis=dict(side="top", tickfont=dict(size=11)),
+                yaxis=dict(autorange="reversed", tickfont=dict(size=11))))
+        st.plotly_chart(fh, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 5 — PER-JUDGE BAD RATE BY CATEGORY (tabbed)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("PER-JUDGE BAD RATE BY CATEGORY")
+
+    judge_tabs = st.tabs(JUDGE_NAMES)
+    for tab, (dc, jname, jcolor) in zip(
+            judge_tabs, zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS)):
+        with tab:
+            if dc not in edf.columns:
+                st.info("No data for this judge.")
+                continue
+            bv     = _J_BAD.get(dc, [])
+            cat_br = (edf.groupby("Category")
+                        .apply(lambda g: g[dc].isin(bv).sum() / max(1,len(g)) * 100)
+                        .reset_index(name="bad_pct")
+                        .sort_values("bad_pct", ascending=True))
+            cat_br["count"] = cat_br["Category"].apply(
+                lambda c: int(edf[edf["Category"]==c][dc].isin(bv).sum()))
+            cat_br["total"] = cat_br["Category"].apply(
+                lambda c: len(edf[edf["Category"]==c]))
+            overall_bad = edf[dc].isin(bv).sum() / max(1, n_total) * 100
+
+            fig_j = go.Figure(go.Bar(
+                x=cat_br["bad_pct"], y=cat_br["Category"],
+                orientation="h",
+                marker_color=["#ef4444" if v>=40 else "#f59e0b" if v>=20 else "#10b981"
+                              for v in cat_br["bad_pct"]],
+                text=cat_br.apply(
+                    lambda r: f"{r['bad_pct']:.1f}% ({r['count']}/{r['total']})", axis=1),
+                textposition="outside", textfont=dict(size=10)))
+            fig_j.add_vline(x=overall_bad, line_dash="dash",
+                            line_color=jcolor, line_width=2,
+                            annotation_text=f"Avg {overall_bad:.1f}%",
+                            annotation_position="top right",
+                            annotation_font_size=10)
+            fig_j.update_layout(
+                **plot_layout(
+                    height=max(300, len(cat_br)*38+80),
+                    margin=dict(l=10,r=180,t=20,b=40),
+                    xaxis=dict(range=[0,120], gridcolor="#f1f5f9",
+                               title="Bad Rate (%)", ticksuffix="%"),
+                    yaxis=dict(tickfont=dict(size=10), automargin=True)))
+            st.plotly_chart(fig_j, use_container_width=True)
+
+            mc1, mc2, mc3 = st.columns(3)
+            worst = cat_br.iloc[-1]; best = cat_br.iloc[0]
+            mc1.metric("Overall Bad Rate",  f"{overall_bad:.1f}%")
+            mc2.metric("Worst Category",
+                       f"{worst['Category']} ({worst['bad_pct']:.0f}%)")
+            mc3.metric("Best Category",
+                       f"{best['Category']} ({best['bad_pct']:.0f}%)")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 6 — CO-FAILURE CORRELATION
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("JUDGE CO-FAILURE CORRELATION")
+
+    cod = pd.DataFrame()
+    for dc, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+        bv = _J_BAD.get(dc, [])
+        cod[jn] = edf[dc].isin(bv).astype(int) if dc in edf.columns else 0
+    cm = cod.corr().round(2)
+
+    fig_corr = go.Figure(go.Heatmap(
+        z=cm.values, x=cm.columns, y=cm.index,
+        colorscale=[[0,"#f0fdf4"],[0.5,"#fefce8"],[1,"#ef4444"]],
+        text=cm.values, texttemplate="%{text}",
+        textfont=dict(size=12, color="#0f172a"),
+        zmin=0, zmax=1,
+        colorbar=dict(title=dict(text="Correlation", side="right"), len=0.9)))
+    fig_corr.update_layout(
+        **plot_layout(
+            height=360, margin=dict(l=10,r=80,t=40,b=10),
+            xaxis=dict(side="top", tickfont=dict(size=11)),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=11))))
+    st.plotly_chart(fig_corr, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 7 — TOP HIGH-RISK SUBTYPES
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("TOP HIGH-RISK SUBTYPES — OVERALL FAIL RATE")
+
+    sr = (edf.groupby("Subtype")
+            .apply(lambda g: (g["Status"]=="Fail").sum() / max(1,len(g)) * 100)
+            .sort_values(ascending=False)
+            .head(15)
+            .reset_index(name="Fail %"))
+    sr["Count"] = sr["Subtype"].apply(lambda s: len(edf[edf["Subtype"]==s]))
+
+    if not sr.empty:
+        fig_sub = go.Figure(go.Bar(
+            x=sr["Fail %"], y=sr["Subtype"],
+            orientation="h",
+            marker=dict(
+                color=sr["Fail %"],
+                colorscale=[[0,"#10b981"],[0.4,"#f59e0b"],[1,"#ef4444"]],
+                cmin=0, cmax=100,
+                colorbar=dict(title=dict(text="Fail %"),
+                              ticksuffix="%", len=0.8)),
+            text=sr.apply(
+                lambda r: f"{r['Fail %']:.0f}%  ({r['Count']} records)", axis=1),
+            textposition="outside", textfont=dict(size=10)))
+        fig_sub.add_vline(x=20, line_dash="dash", line_color="#f59e0b",
+                          annotation_text="20% threshold")
+        fig_sub.update_layout(
+            **plot_layout(
+                height=max(350, len(sr)*30+80),
+                margin=dict(l=10,r=200,t=36,b=10),
+                xaxis=dict(range=[0,130], gridcolor="#f1f5f9",
+                           title="Fail %", ticksuffix="%"),
+                yaxis=dict(tickfont=dict(size=10), automargin=True)))
+        st.plotly_chart(fig_sub, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 8 — BIAS PATTERN DISTRIBUTION
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("BIAS PATTERN DISTRIBUTION — FAIL RATE BY BIAS TYPE")
+
+    bt_df = (edf.groupby("Bias Type")
+               .apply(lambda g: (g["Status"]=="Fail").sum() / max(1,len(g)) * 100)
+               .sort_values(ascending=False)
+               .head(12)
+               .reset_index(name="Fail %"))
+    bt_df["Count"] = bt_df["Bias Type"].apply(
+        lambda b: len(edf[edf["Bias Type"]==b]))
+
+    if not bt_df.empty:
+        fig_bt = go.Figure(go.Bar(
+            x=bt_df["Bias Type"], y=bt_df["Fail %"],
+            marker=dict(
+                color=bt_df["Fail %"],
+                colorscale=[[0,"#10b981"],[0.4,"#f59e0b"],[1,"#ef4444"]],
+                cmin=0, cmax=100),
+            text=bt_df.apply(
+                lambda r: f"{r['Fail %']:.0f}%<br>({r['Count']})", axis=1),
+            textposition="outside", textfont=dict(size=10)))
+        fig_bt.add_hline(y=20, line_dash="dash", line_color="#f59e0b",
+                         annotation_text="20% threshold")
+        fig_bt.update_layout(
+            **plot_layout(
+                height=380, margin=dict(l=10,r=10,t=36,b=90),
+                xaxis=dict(tickangle=-35, gridcolor="#f1f5f9"),
+                yaxis=dict(range=[0,120], title="Fail %",
+                           gridcolor="#f1f5f9", ticksuffix="%")))
+        st.plotly_chart(fig_bt, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 9 — RADAR (dual: good vs bad per judge)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("CATEGORY RADAR — SELECT JUDGE")
+
+    r_left, r_right = st.columns([1, 3], gap="large")
+    with r_left:
+        sel_j = st.selectbox("Select Judge", JUDGE_NAMES, key="ana_radar_j")
+    j_idx = JUDGE_NAMES.index(sel_j)
+    dc_r  = ALL_J_DISPLAY_COLS[j_idx]
+    bv_r  = _J_BAD.get(dc_r,  [])
+    gv_r  = _J_GOOD.get(dc_r, [])
+    vals_bad  = [edf[edf["Category"]==c][dc_r].isin(bv_r).sum()
+                 / max(1,len(edf[edf["Category"]==c])) * 100
+                 if dc_r in edf.columns else 0 for c in categories]
+    vals_good = [edf[edf["Category"]==c][dc_r].isin(gv_r).sum()
+                 / max(1,len(edf[edf["Category"]==c])) * 100
+                 if dc_r in edf.columns else 0 for c in categories]
+    theta = [c[:22] for c in categories]
+
+    with r_right:
+        fig_rad = go.Figure()
+        fig_rad.add_trace(go.Scatterpolar(
+            r=vals_good+[vals_good[0]], theta=theta+[theta[0]],
+            fill="toself", fillcolor="rgba(16,185,129,0.12)",
+            line=dict(color="#10b981", width=2), name="Good Rate %"))
+        fig_rad.add_trace(go.Scatterpolar(
+            r=vals_bad+[vals_bad[0]], theta=theta+[theta[0]],
+            fill="toself", fillcolor="rgba(239,68,68,0.12)",
+            line=dict(color=JUDGE_COLORS[j_idx], width=2), name="Bad Rate %"))
+        fig_rad.update_layout(
+            polar=dict(
+                radialaxis=dict(visible=True, range=[0,100],
+                                gridcolor="#e2e8f0", ticksuffix="%"),
+                angularaxis=dict(gridcolor="#e2e8f0")),
+            paper_bgcolor="white",
+            height=440, margin=dict(l=60,r=60,t=30,b=30),
+            legend=dict(orientation="h", y=-0.06, font_size=11))
+        st.plotly_chart(fig_rad, use_container_width=True)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 10 — SUBTYPE × JUDGE TABLE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("SUBTYPE × JUDGE BAD RATE TABLE (%)")
+
+    sjd = []
+    for sub in subtypes:
+        sd = edf[edf["Subtype"]==sub]
+        r  = {"Subtype": sub, "Total": len(sd),
+              "Fail Rate %": round((sd["Status"]=="Fail").sum()/max(1,len(sd))*100,1)}
+        for dc2, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+            bv2 = _J_BAD.get(dc2, [])
+            r[jn] = round(sd[dc2].isin(bv2).sum()/max(1,len(sd))*100,1) \
+                    if dc2 in sd.columns else 0
+        sjd.append(r)
+    sjdf = pd.DataFrame(sjd).sort_values("Fail Rate %", ascending=False)
+
+    def _cp2(v):
+        try:
+            x = float(v)
+            if x >= 40: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+            if x >= 20: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+            return "background-color:#dcfce7;color:#16a34a"
+        except:
+            return ""
+
+    jpct = [jn for jn in JUDGE_NAMES if jn in sjdf.columns]
+    st.dataframe(
+        sjdf.style.applymap(_cp2, subset=["Fail Rate %"]+jpct),
+        use_container_width=True, height=fit_height(sjdf))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 11 — FULL RESULTS TABLE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("FULL RESULTS TABLE")
+
+    fc = [c for c in (["id","A_Code","Category","Subtype","Bias Type","Status"]
+                      + ALL_J_DISPLAY_COLS + ALL_J_REASON_COLS
+                      + ["original_question","Augmented Storyline","Actual Output"])
+          if c in edf.columns]
+    styled_full = edf[fc].style.applymap(style_status, subset=["Status"])
+    for jc_col in [c for c in ALL_J_DISPLAY_COLS if c in edf.columns]:
+        styled_full = styled_full.applymap(_style_cls, subset=[jc_col])
+    st.dataframe(styled_full, use_container_width=True, height=fit_height(edf))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 12 — DOWNLOADS (8 files)
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("DOWNLOAD ALL REPORTS")
+
+    # Bias pattern table
+    bp_rows = []
+    for bp in edf["Bias Type"].dropna().unique():
+        bd = edf[edf["Bias Type"]==bp]
+        r  = {"Bias Pattern": bp,
+              "Total": len(bd),
+              "Failed": int((bd["Status"]=="Fail").sum()),
+              "Fail Rate %": round((bd["Status"]=="Fail").sum()/max(1,len(bd))*100,1)}
+        for dc, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+            bv = _J_BAD.get(dc, [])
+            r[f"{jn} Bad %"] = round(bd[dc].isin(bv).sum()/max(1,len(bd))*100,1) \
+                               if dc in bd.columns else 0
+        bp_rows.append(r)
+    bp_dl = pd.DataFrame(bp_rows).sort_values("Fail Rate %", ascending=False)
+
+    # Judge classification detail
+    jc_rows = []
+    for dc, jname in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+        if dc not in edf.columns:
+            continue
+        for val, cnt in edf[dc].value_counts().items():
+            jc_rows.append({
+                "Judge": jname, "Classification": val, "Count": cnt,
+                "Percentage %": round(cnt/max(1,n_total)*100,1),
+                "Type": ("Good" if val in _J_GOOD.get(dc,[])
+                         else "Bad" if val in _J_BAD.get(dc,[]) else "Mid"),
+            })
+    jc_dl = pd.DataFrame(jc_rows)
+
+    # Gap summary
+    gap_dl = gjdf[["judge","good_pct","mid_pct","bad_pct","gap"]].copy()
+    gap_dl.columns = ["Judge","Good %","Mid %","Bad %","Gap (Good−Bad) %"]
+
+    # Category summary
+    cat_summary = edf.groupby("Category").agg(
+        Total  = ("Status","count"),
+        Failed = ("Status", lambda x: (x=="Fail").sum()),
+    ).reset_index()
+    cat_summary["Fail Rate %"] = (cat_summary["Failed"]/cat_summary["Total"]*100).round(1)
+    for dc, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+        bv = _J_BAD.get(dc, [])
+        cat_summary[f"{jn} Bad %"] = cat_summary["Category"].apply(
+            lambda c: round(edf[edf["Category"]==c][dc].isin(bv).sum()
+                            / max(1,len(edf[edf["Category"]==c]))*100, 1)
+            if dc in edf.columns else 0)
+
+    corr_dl = cm.reset_index().rename(columns={"index":"Judge"})
+
+    dl_row1 = st.columns(4)
+    dl_row2 = st.columns(4)
+    with dl_row1[0]:
+        green_download("⬇ Full Results", to_excel_bytes(edf),
+                       "bias_results.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a1")
+    with dl_row1[1]:
+        green_download("⬇ Failures Only", to_excel_bytes(fail_df),
+                       "failures.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a2")
+    with dl_row1[2]:
+        green_download("⬇ Judge Gap Summary", to_excel_bytes(gap_dl),
+                       "judge_gap_summary.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a3")
+    with dl_row1[3]:
+        green_download("⬇ Category Summary", to_excel_bytes(cat_summary),
+                       "category_summary.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a4")
+    with dl_row2[0]:
+        green_download("⬇ Subtype Risk", to_excel_bytes(sjdf),
+                       "subtype_risk.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a5")
+    with dl_row2[1]:
+        green_download("⬇ Bias Pattern Table", to_excel_bytes(bp_dl),
+                       "bias_pattern_table.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a6")
+    with dl_row2[2]:
+        green_download("⬇ Judge Classification", to_excel_bytes(jc_dl),
+                       "judge_classification_detail.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a7")
+    with dl_row2[3]:
+        green_download("⬇ Co-Failure Correlation", to_excel_bytes(corr_dl),
+                       "judge_correlation_matrix.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                       key="dl_a8")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PAGE: LLM INSIGHTS
+# ══════════════════════════════════════════════════════════════════════════════
 elif page == "insights":
     page_header(
         "💡 LLM Insights",
-        "AI-generated root cause analysis and governance recommendations "
-        "powered by your prompts.yaml.")
+        "5 consolidated root causes and 5 governance recommendations "
+        "generated from your full evaluation results.")
 
     if st.session_state.eval_df is None:
         st.warning("⬅ Complete the Evaluation step first.")
@@ -77,54 +789,51 @@ elif page == "insights":
     s1, s2, s3, s4 = st.columns(4)
     s1.metric("Total Records",     len(edf))
     s2.metric("Categories",        edf["Category"].nunique())
-    s3.metric("Failed Records",    int((edf["Status"] == "Fail").sum()))
-    s4.metric("Overall Fail Rate", f"{(edf['Status']=='Fail').sum()/max(1,len(edf))*100:.1f}%")
+    s3.metric("Failed Records",    int((edf["Status"]=="Fail").sum()))
+    s4.metric("Overall Fail Rate",
+              f"{(edf['Status']=='Fail').sum()/max(1,len(edf))*100:.1f}%")
 
-    # ── Show last LLM error if any ─────────────────────────────────────────────
-    last_err = st.session_state.get("_llm_last_error", "")
+    # ── Last error expander ───────────────────────────────────────────────────
+    last_err = st.session_state.get("_llm_last_error","")
     if last_err:
-        with st.expander("⚠️ Last LLM error (click to inspect)", expanded=False):
+        with st.expander("⚠️ Last LLM error (click to inspect)", expanded=True):
             st.code(last_err, language="text")
 
-    # ── Prompt availability check ──────────────────────────────────────────────
+    # ── Credential + prompt check ─────────────────────────────────────────────
     RC_KEY  = "root_cause_analysis"
     GOV_KEY = "governance_recommendations"
-    has_rc  = RC_KEY  in prompts and bool(str(prompts.get(RC_KEY,  "")).strip())
-    has_gov = GOV_KEY in prompts and bool(str(prompts.get(GOV_KEY, "")).strip())
+    has_rc  = RC_KEY  in prompts and bool(str(prompts.get(RC_KEY, "")).strip())
+    has_gov = GOV_KEY in prompts and bool(str(prompts.get(GOV_KEY,"")).strip())
+    creds_ok = all([st.session_state.azure_key,
+                    st.session_state.azure_endpoint,
+                    st.session_state.azure_deploy])
 
-    if not has_rc or not has_gov:
-        missing = []
-        if not has_rc:  missing.append(f"`{RC_KEY}`")
-        if not has_gov: missing.append(f"`{GOV_KEY}`")
-        st.error(
-            f"❌ Missing prompt key(s) in prompts.yaml: {', '.join(missing)}. "
-            "Please re-upload the correct prompts file from the Upload page.")
-
-    creds_ok = all([
-        st.session_state.azure_key,
-        st.session_state.azure_endpoint,
-        st.session_state.azure_deploy,
-    ])
+    for missing_key in ([RC_KEY]  if not has_rc  else []) + \
+                       ([GOV_KEY] if not has_gov else []):
+        st.error(f"❌ Prompt key `{missing_key}` is missing or empty in prompts.yaml.")
     if not creds_ok:
-        st.error("❌ Azure OpenAI credentials are not configured. "
-                 "Set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, "
-                 "and AZURE_OPENAI_DEPLOYMENT in your .env file.")
+        st.error("❌ Azure OpenAI credentials incomplete. "
+                 "Check AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, "
+                 "AZURE_OPENAI_DEPLOYMENT in .env.")
 
     st.divider()
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Metrics summary builder
-    # Produces the JSON list that {{metrics_summary}} receives in both prompts.
-    # Field names match the few-shot examples in your prompts.yaml exactly:
-    #   "Decision Flip"        → Demographic Parity  bad rate  (judge 1)
-    #   "Fairness Degradation" → Equalized Odds       bad rate  (judge 2)
-    #   "Safety_Drift"         → Refusal Engagement   bad rate  (judge 3)
-    #   "Tone Inequality"      → Tone Parity          bad rate  (judge 4)
-    #   "Stereotype Injection" → Stereotype Score     bad rate  (judge 5)
+    # OVERALL METRICS SUMMARY
+    # Builds a SINGLE consolidated summary dict (not per-category) so the LLM
+    # produces 5 overall findings, not per-category analysis.
+    # Also builds the per-category list for the prompt placeholder.
     # ══════════════════════════════════════════════════════════════════════════
-    def build_full_metrics_summary(df: pd.DataFrame) -> list:
-        # Map: legacy prompt field name → (ALL_J_DISPLAY_COLS index, JUDGE_NAMES index)
-        LEGACY_METRIC_MAP = {
+    def build_overall_metrics_summary(df: pd.DataFrame) -> dict:
+        """
+        Single consolidated dict representing the ENTIRE evaluation dataset.
+        Field names match the legacy names used in prompts.yaml few-shot examples.
+        """
+        total = len(df)
+        fails = int((df["Status"] == "Fail").sum())
+
+        # Legacy field name → judge index mapping
+        LEGACY = {
             "Decision Flip":        0,   # Demographic Parity
             "Fairness Degradation": 1,   # Equalized Odds
             "Safety_Drift":         2,   # Refusal Engagement
@@ -132,83 +841,177 @@ elif page == "insights":
             "Stereotype Injection": 4,   # Stereotype Score
         }
 
+        summary = {
+            "total_records":    total,
+            "fail_count":       fails,
+            "failure_rate_pct": round(fails / max(1, total) * 100, 1),
+            "categories_tested": sorted(df["Category"].dropna().unique().tolist()),
+            "subtypes_tested":  df["Subtype"].nunique(),
+        }
+
+        for legacy_name, j_idx in LEGACY.items():
+            dc  = ALL_J_DISPLAY_COLS[j_idx]
+            bv  = _J_BAD.get(dc,  [])
+            gv  = _J_GOOD.get(dc, [])
+            mv  = _J_MID.get(dc,  [])
+            if dc not in df.columns:
+                summary[legacy_name]              = 0.0
+                summary[f"{legacy_name}_good"]    = 0.0
+                summary[f"{legacy_name}_mid"]     = 0.0
+                summary[f"{legacy_name}_gap"]     = 0.0
+                continue
+            bad_r  = round(df[dc].isin(bv).sum() / max(1,total), 3)
+            good_r = round(df[dc].isin(gv).sum() / max(1,total), 3)
+            mid_r  = round(df[dc].isin(mv).sum() / max(1,total), 3)
+            summary[legacy_name]           = bad_r           # bad rate as "score"
+            summary[f"{legacy_name}_good"] = good_r
+            summary[f"{legacy_name}_mid"]  = mid_r
+            summary[f"{legacy_name}_gap"]  = round(good_r - bad_r, 3)
+
+        # Worst categories per judge (top 2) for context
+        worst_cats = {}
+        for legacy_name, j_idx in LEGACY.items():
+            dc  = ALL_J_DISPLAY_COLS[j_idx]
+            bv  = _J_BAD.get(dc, [])
+            if dc not in df.columns:
+                continue
+            cat_rates = (df.groupby("Category")
+                           .apply(lambda g: g[dc].isin(bv).sum()/max(1,len(g)))
+                           .sort_values(ascending=False)
+                           .head(2))
+            worst_cats[legacy_name] = [
+                {"category": c, "bad_rate": round(float(v)*100,1)}
+                for c, v in cat_rates.items()]
+        summary["worst_categories_per_metric"] = worst_cats
+
+        return summary
+
+    def build_per_category_summary(df: pd.DataFrame) -> list:
+        """Per-category breakdown — passed alongside overall summary."""
+        LEGACY = {
+            "Decision Flip":        0,
+            "Fairness Degradation": 1,
+            "Safety_Drift":         2,
+            "Tone Inequality":      3,
+            "Stereotype Injection": 4,
+        }
         rows = []
         for cat in sorted(df["Category"].dropna().unique()):
-            cd    = df[df["Category"] == cat]
+            cd    = df[df["Category"]==cat]
             total = len(cd)
-            fails = int((cd["Status"] == "Fail").sum())
-
-            row = {
+            fails = int((cd["Status"]=="Fail").sum())
+            row   = {
                 "Category":         cat,
                 "total_count":      total,
                 "fail_count":       fails,
-                "failure_rate_pct": round(fails / max(1, total) * 100, 1),
+                "failure_rate_pct": round(fails/max(1,total)*100,1),
             }
-
-            # Per-judge rates using the LEGACY field names your prompt expects
-            for legacy_name, j_idx in LEGACY_METRIC_MAP.items():
-                dc  = ALL_J_DISPLAY_COLS[j_idx]    # e.g. "Demographic Parity"
-                bv  = _J_BAD.get(dc,  [])
-                gv  = _J_GOOD.get(dc, [])
-                mv  = _J_MID.get(dc,  [])
-                if dc not in cd.columns:
-                    row[legacy_name]                          = 0.0
-                    row[f"{legacy_name}_good_rate"]           = 0.0
-                    row[f"{legacy_name}_mid_rate"]            = 0.0
-                else:
-                    row[legacy_name]                          = round(cd[dc].isin(bv).sum() / max(1, total), 3)
-                    row[f"{legacy_name}_good_rate"]           = round(cd[dc].isin(gv).sum() / max(1, total), 3)
-                    row[f"{legacy_name}_mid_rate"]            = round(cd[dc].isin(mv).sum() / max(1, total), 3)
-
+            for legacy_name, j_idx in LEGACY.items():
+                dc = ALL_J_DISPLAY_COLS[j_idx]
+                bv = _J_BAD.get(dc, [])
+                row[legacy_name] = round(
+                    cd[dc].isin(bv).sum()/max(1,total), 3) \
+                    if dc in cd.columns else 0.0
             rows.append(row)
         return rows
 
     # ══════════════════════════════════════════════════════════════════════════
-    # Async helpers — defined at module scope equivalent inside this block
-    # using run_async which already exists at module level
+    # LLM call wrappers
+    # Both use call_llm_with_json_fallback to handle governance prompt's
+    # tendency to return empty when json_mode is forced on a very long prompt.
     # ══════════════════════════════════════════════════════════════════════════
-    def _do_root_causes(prompts_dict: dict, ms: list) -> dict:
-        """Synchronous wrapper: fills {{metrics_summary}} and calls LLM."""
+    def _do_root_causes(prompts_dict: dict,
+                        overall_summary: dict,
+                        per_cat_summary: list) -> dict:
+        """
+        Fills {{metrics_summary}} with BOTH overall + per-category data
+        so the LLM has full context but produces 5 OVERALL findings.
+        A system instruction is prepended to enforce 5 consolidated points.
+        """
         template = prompts_dict.get(RC_KEY, "")
         if not template:
             return {"root_causes": []}
+
+        # Combined payload for {{metrics_summary}}
+        payload = {
+            "overall":      overall_summary,
+            "per_category": per_cat_summary,
+        }
         filled = str(template).replace(
-            "{{metrics_summary}}", json.dumps(ms, indent=2, ensure_ascii=False))
+            "{{metrics_summary}}",
+            json.dumps(payload, indent=2, ensure_ascii=False))
+
+        # Prepend a clear system-level instruction inside the user prompt
+        # (since call_llm uses system param only when passed explicitly,
+        #  and the prompt already has a Role section)
+        override_instruction = (
+            "\n\nCRITICAL OVERRIDE INSTRUCTION: "
+            "You must return EXACTLY 5 root causes. "
+            "These must be CONSOLIDATED findings across the ENTIRE evaluation dataset, "
+            "NOT one finding per category. "
+            "Each root cause must represent a systemic pattern observed across multiple "
+            "categories or the dataset as a whole. "
+            "Use the 'overall' metrics in the summary as your primary evidence source. "
+            "The 'per_category' data is provided for supporting detail only.\n"
+        )
+        filled = filled + override_instruction
 
         async def _call():
-            return await call_llm(filled, system=None, json_mode=True)
+            return await call_llm_with_json_fallback(filled, system=None)
 
         result = run_async(_call())
-        # Validate shape
         if isinstance(result, dict) and "root_causes" in result:
             return result
-        # LLM might wrap in a different key — try to recover
+        # Key recovery
         if isinstance(result, dict):
             for v in result.values():
-                if isinstance(v, list):
+                if isinstance(v, list) and len(v) > 0:
                     return {"root_causes": v}
         return {"root_causes": []}
 
-    def _do_governance(prompts_dict: dict, root_causes: list, ms: list) -> dict:
-        """Synchronous wrapper: fills {{root_causes}} and {{metrics_summary}}."""
+    def _do_governance(prompts_dict: dict,
+                       root_causes: list,
+                       overall_summary: dict,
+                       per_cat_summary: list) -> dict:
+        """
+        Fills {{root_causes}} and {{metrics_summary}}.
+        Uses json_fallback because governance prompt is very long and
+        Azure sometimes returns empty body under json_mode.
+        """
         template = prompts_dict.get(GOV_KEY, "")
         if not template:
             return {"recommendations": []}
+
+        payload = {
+            "overall":      overall_summary,
+            "per_category": per_cat_summary,
+        }
         filled = (str(template)
                   .replace("{{root_causes}}",
                            json.dumps(root_causes, indent=2, ensure_ascii=False))
                   .replace("{{metrics_summary}}",
-                           json.dumps(ms, indent=2, ensure_ascii=False)))
+                           json.dumps(payload, indent=2, ensure_ascii=False)))
+
+        override_instruction = (
+            "\n\nCRITICAL OVERRIDE INSTRUCTION: "
+            "You must return EXACTLY 5 governance recommendations. "
+            "These must be OVERALL recommendations addressing the most impactful "
+            "systemic issues across the entire evaluation dataset, "
+            "NOT one recommendation per category. "
+            "Base recommendations on the 'overall' metrics summary primarily. "
+            "Each recommendation must be actionable, specific, and include a framework reference.\n"
+        )
+        filled = filled + override_instruction
 
         async def _call():
-            return await call_llm(filled, system=None, json_mode=True)
+            return await call_llm_with_json_fallback(filled, system=None)
 
         result = run_async(_call())
         if isinstance(result, dict) and "recommendations" in result:
             return result
         if isinstance(result, dict):
             for v in result.values():
-                if isinstance(v, list):
+                if isinstance(v, list) and len(v) > 0:
                     return {"recommendations": v}
         return {"recommendations": []}
 
@@ -220,146 +1023,162 @@ elif page == "insights":
     with col_rc:
         rc_done = gov is not None and bool(gov.get("root_causes"))
         st.markdown(
-            f'<div style="background:white;border:1px solid {"#bbf7d0" if rc_done else "#e2e8f0"};'
-            f'border-radius:12px;padding:18px 20px;'
-            f'border-left:4px solid {"#16a34a" if rc_done else "#6366f1"};'
-            f'margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
+            f'<div style="background:white;border:1px solid '
+            f'{"#bbf7d0" if rc_done else "#e2e8f0"};border-radius:12px;'
+            f'padding:18px 20px;border-left:4px solid '
+            f'{"#16a34a" if rc_done else "#6366f1"};margin-bottom:16px;'
+            f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
             f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
             f'🔍 Root Cause Analysis</div>'
             f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
-            f'Invokes the <code>root_cause_analysis</code> prompt from prompts.yaml, '
-            f'injecting the full per-category metrics summary (all 5 judges). '
-            f'Returns systemic root causes with metric evidence and framework references.</div>'
-            + (f'<div style="margin-top:8px">'
-               f'<span style="background:#f0fdf4;color:#16a34a;padding:2px 10px;'
-               f'border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0">'
+            f'Generates <b>5 consolidated root causes</b> across the entire evaluation '
+            f'dataset using the <code>root_cause_analysis</code> prompt from prompts.yaml. '
+            f'Results are overall findings, not per-category breakdowns.</div>'
+            + (f'<div style="margin-top:8px"><span style="background:#f0fdf4;color:#16a34a;'
+               f'padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;'
+               f'border:1px solid #bbf7d0">'
                f'✓ {len(gov["root_causes"])} root causes generated</span></div>'
                if rc_done else "")
             + '</div>',
             unsafe_allow_html=True)
 
-        btn_rc_label = "🔄 Regenerate Root Causes" if rc_done else "🔍 Generate Root Cause Analysis"
-        if st.button(btn_rc_label, type="primary", key="btn_rc",
-                     use_container_width=True, disabled=(not has_rc or not creds_ok)):
-            # Clear previous error
+        if st.button(
+                "🔄 Regenerate Root Causes" if rc_done else "🔍 Generate Root Cause Analysis",
+                type="primary", key="btn_rc",
+                use_container_width=True,
+                disabled=(not has_rc or not creds_ok)):
             st.session_state["_llm_last_error"] = ""
-            with st.spinner("Building metrics summary and calling LLM…"):
-                ms     = build_full_metrics_summary(edf)
-                result = _do_root_causes(prompts, ms)
+            with st.spinner("Analysing evaluation results…"):
+                overall = build_overall_metrics_summary(edf)
+                per_cat = build_per_category_summary(edf)
+                result  = _do_root_causes(prompts, overall, per_cat)
 
             rc_list = result.get("root_causes", [])
             if rc_list:
-                existing_recs = gov.get("recommendations", []) if gov else []
+                existing_recs = gov.get("recommendations",[]) if gov else []
                 st.session_state.governance_report = {
                     "root_causes":      rc_list,
                     "recommendations":  existing_recs,
                     "generated_at":     __import__("datetime").datetime.now()
                                         .strftime("%Y-%m-%d %H:%M:%S"),
-                    "gov_generated_at": gov.get("gov_generated_at", "") if gov else "",
+                    "gov_generated_at": gov.get("gov_generated_at","") if gov else "",
+                    "_overall_summary": overall,
+                    "_per_cat_summary": per_cat,
                 }
                 st.success(f"✅ {len(rc_list)} root causes generated.")
                 st.rerun()
             else:
-                err = st.session_state.get("_llm_last_error", "Unknown error")
+                err = st.session_state.get("_llm_last_error","No response from LLM.")
                 st.error(
-                    f"❌ LLM returned no root causes.\n\n"
-                    f"**Error:** {err}\n\n"
-                    f"Check: (1) Azure credentials, (2) prompt key `{RC_KEY}` "
-                    f"exists in prompts.yaml, (3) model deployment name is correct.")
+                    f"❌ LLM returned no root causes.\n\n**Detail:** {err}\n\n"
+                    f"Verify: Azure credentials · deployment name · "
+                    f"prompt key `{RC_KEY}` in prompts.yaml.")
 
     with col_gov:
         gov_done = gov is not None and bool(gov.get("recommendations"))
         st.markdown(
-            f'<div style="background:white;border:1px solid {"#bbf7d0" if gov_done else "#e2e8f0"};'
-            f'border-radius:12px;padding:18px 20px;'
-            f'border-left:4px solid {"#16a34a" if gov_done else "#f59e0b"};'
-            f'margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
+            f'<div style="background:white;border:1px solid '
+            f'{"#bbf7d0" if gov_done else "#e2e8f0"};border-radius:12px;'
+            f'padding:18px 20px;border-left:4px solid '
+            f'{"#16a34a" if gov_done else "#f59e0b"};margin-bottom:16px;'
+            f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
             f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
             f'📋 Governance Recommendations</div>'
             f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
-            f'Invokes the <code>governance_recommendations</code> prompt from prompts.yaml, '
-            f'injecting root causes + full metrics summary. Generates 5 prioritised '
-            f'recommendations with framework citations.</div>'
-            + (f'<div style="margin-top:8px">'
-               f'<span style="background:#f0fdf4;color:#16a34a;padding:2px 10px;'
-               f'border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0">'
+            f'Generates <b>5 overall governance recommendations</b> using the '
+            f'<code>governance_recommendations</code> prompt from prompts.yaml. '
+            f'Includes framework citations and expected impact for each action.</div>'
+            + (f'<div style="margin-top:8px"><span style="background:#f0fdf4;color:#16a34a;'
+               f'padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;'
+               f'border:1px solid #bbf7d0">'
                f'✓ {len(gov["recommendations"])} recommendations generated</span></div>'
                if gov_done else "")
             + '</div>',
             unsafe_allow_html=True)
 
-        btn_gov_label = ("🔄 Regenerate Recommendations" if gov_done
-                         else "📋 Generate Governance Recommendations")
-        if st.button(btn_gov_label, type="primary", key="btn_gov",
-                     use_container_width=True, disabled=(not has_gov or not creds_ok)):
+        if st.button(
+                "🔄 Regenerate Recommendations" if gov_done
+                else "📋 Generate Governance Recommendations",
+                type="primary", key="btn_gov",
+                use_container_width=True,
+                disabled=(not has_gov or not creds_ok)):
             st.session_state["_llm_last_error"] = ""
-            with st.spinner("Building metrics summary…"):
-                ms = build_full_metrics_summary(edf)
 
-            # Auto-generate root causes first if they don't exist
-            existing_rc = gov.get("root_causes", []) if gov else []
+            # Reuse cached summaries if available, else recompute
+            overall = gov.get("_overall_summary") if gov else None
+            per_cat = gov.get("_per_cat_summary") if gov else None
+            if overall is None:
+                with st.spinner("Computing metrics…"):
+                    overall = build_overall_metrics_summary(edf)
+                    per_cat = build_per_category_summary(edf)
+
+            # Auto-generate root causes if missing
+            existing_rc = gov.get("root_causes",[]) if gov else []
             if not existing_rc:
-                with st.spinner("Root causes not found — generating them first…"):
-                    rc_result   = _do_root_causes(prompts, ms)
-                    existing_rc = rc_result.get("root_causes", [])
+                with st.spinner("Generating root causes first (required)…"):
+                    rc_result   = _do_root_causes(prompts, overall, per_cat)
+                    existing_rc = rc_result.get("root_causes",[])
                 if not existing_rc:
-                    err = st.session_state.get("_llm_last_error", "Unknown error")
-                    st.error(
-                        f"❌ Could not generate root causes (required for governance prompt).\n\n"
-                        f"**Error:** {err}")
+                    err = st.session_state.get("_llm_last_error","No response.")
+                    st.error(f"❌ Root cause generation failed: {err}")
                     st.stop()
 
             with st.spinner("Generating governance recommendations…"):
-                rec_result = _do_governance(prompts, existing_rc, ms)
+                rec_result = _do_governance(prompts, existing_rc, overall, per_cat)
 
-            recs = rec_result.get("recommendations", [])
+            recs = rec_result.get("recommendations",[])
             if recs:
                 for rec in recs:
                     rec["priority_color"] = PRIORITY_COLORS.get(
-                        rec.get("priority", "Medium"), "#64748b")
-                existing_at = gov.get("generated_at", "") if gov else ""
+                        rec.get("priority","Medium"),"#64748b")
+                existing_at = gov.get("generated_at","") if gov else ""
                 st.session_state.governance_report = {
-                    "root_causes":      existing_rc,
-                    "recommendations":  recs,
-                    "generated_at":     existing_at,
-                    "gov_generated_at": __import__("datetime").datetime.now()
-                                        .strftime("%Y-%m-%d %H:%M:%S"),
+                    "root_causes":       existing_rc,
+                    "recommendations":   recs,
+                    "generated_at":      existing_at,
+                    "gov_generated_at":  __import__("datetime").datetime.now()
+                                         .strftime("%Y-%m-%d %H:%M:%S"),
+                    "_overall_summary":  overall,
+                    "_per_cat_summary":  per_cat,
                 }
                 st.success(f"✅ {len(recs)} recommendations generated.")
                 st.rerun()
             else:
-                err = st.session_state.get("_llm_last_error", "Unknown error")
+                err = st.session_state.get("_llm_last_error","No response from LLM.")
                 st.error(
-                    f"❌ LLM returned no recommendations.\n\n"
-                    f"**Error:** {err}\n\n"
-                    f"Check: (1) Azure credentials, (2) prompt key `{GOV_KEY}` "
-                    f"in prompts.yaml, (3) model deployment name.")
+                    f"❌ LLM returned no recommendations.\n\n**Detail:** {err}\n\n"
+                    f"Verify: Azure credentials · deployment name · "
+                    f"prompt key `{GOV_KEY}` in prompts.yaml.")
 
     # ══════════════════════════════════════════════════════════════════════════
     # Render results
     # ══════════════════════════════════════════════════════════════════════════
-    gov = st.session_state.governance_report  # re-read after possible update
+    gov = st.session_state.governance_report  # re-read after button actions
+
     if gov and (gov.get("root_causes") or gov.get("recommendations")):
         st.divider()
 
+        LEGACY_COLORS = {
+            "Decision Flip":        JUDGE_COLORS[0],
+            "Fairness Degradation": JUDGE_COLORS[1],
+            "Safety_Drift":         JUDGE_COLORS[2],
+            "Tone Inequality":      JUDGE_COLORS[3],
+            "Stereotype Injection": JUDGE_COLORS[4],
+        }
+
         # ── ROOT CAUSES ───────────────────────────────────────────────────────
         if gov.get("root_causes"):
-            section_label(f"ROOT CAUSE ANALYSIS  ·  {len(gov['root_causes'])} findings")
+            section_label(
+                f"ROOT CAUSE ANALYSIS  ·  {len(gov['root_causes'])} consolidated findings")
             if gov.get("generated_at"):
-                st.caption(f"Generated at {gov['generated_at']}")
+                st.caption(f"Generated at {gov['generated_at']} · "
+                           f"Based on {len(edf)} evaluation records across "
+                           f"{edf['Category'].nunique()} categories")
 
             for i, rc in enumerate(gov["root_causes"], 1):
-                metric  = rc.get("dominant_metric", "")
-                # colour: try to match against legacy metric names
-                LEGACY_COLORS = {
-                    "Decision Flip":        JUDGE_COLORS[0],
-                    "Fairness Degradation": JUDGE_COLORS[1],
-                    "Safety_Drift":         JUDGE_COLORS[2],
-                    "Tone Inequality":      JUDGE_COLORS[3],
-                    "Stereotype Injection": JUDGE_COLORS[4],
-                }
+                metric  = rc.get("dominant_metric","")
                 m_color = LEGACY_COLORS.get(metric, "#6366f1")
-                ref     = rc.get("framework_reference", {})
+                ref     = rc.get("framework_reference",{})
 
                 st.markdown(
                     f'<div style="background:white;border:1px solid #e2e8f0;'
@@ -370,10 +1189,11 @@ elif page == "insights":
                     f'<div style="display:flex;align-items:center;'
                     f'justify-content:space-between;margin-bottom:12px">'
                     f'<div style="display:flex;align-items:center;gap:10px">'
-                    f'<span style="background:#f1f5f9;color:#475569;font-size:11px;'
-                    f'font-weight:700;padding:2px 10px;border-radius:20px">#{i}</span>'
+                    f'<span style="background:#f1f5f9;color:#475569;font-size:12px;'
+                    f'font-weight:800;padding:3px 12px;border-radius:20px">'
+                    f'Finding #{i}</span>'
                     f'<span style="font-size:14px;font-weight:700;color:#0f172a">'
-                    f'{rc.get("category","—")}</span>'
+                    f'{rc.get("category","Overall Dataset")}</span>'
                     f'</div>'
                     f'<span style="background:{m_color}20;color:{m_color};'
                     f'padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;'
@@ -382,13 +1202,13 @@ elif page == "insights":
 
                     f'<div style="background:#f8fafc;border-radius:8px;'
                     f'padding:10px 14px;margin-bottom:10px;font-size:12px;color:#475569">'
-                    f'<span style="font-weight:700;color:#0f172a">Evidence: </span>'
+                    f'<span style="font-weight:700;color:#0f172a">📊 Evidence: </span>'
                     f'{rc.get("score_evidence","—")}</div>'
 
                     f'<div style="margin-bottom:10px">'
                     f'<div style="font-size:10px;font-weight:700;color:#64748b;'
                     f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">'
-                    f'Root Cause</div>'
+                    f'Root Cause Explanation</div>'
                     f'<div style="font-size:13px;color:#1e293b;line-height:1.7">'
                     f'{rc.get("root_cause_explanation","—")}</div>'
                     f'</div>'
@@ -402,23 +1222,27 @@ elif page == "insights":
                     f'{rc.get("user_impact","—")}</div>'
                     f'</div>'
 
-                    f'<div style="display:flex;align-items:center;gap:8px;'
-                    f'padding-top:8px;border-top:1px solid #f1f5f9">'
-                    f'<span style="font-size:16px">📋</span>'
-                    f'<div>'
-                    f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
-                    f'{ref.get("name","—")}</div>'
-                    f'<div style="font-size:11px;color:#64748b">'
-                    f'{ref.get("description","")}</div>'
-                    + (f'<a href="{ref["url"]}" target="_blank" '
-                       f'style="font-size:11px;color:#2563eb">{ref["url"]}</a>'
-                       if ref.get("url") else "")
-                    + '</div></div></div>',
+                    + (f'<div style="display:flex;align-items:flex-start;gap:8px;'
+                       f'padding-top:8px;border-top:1px solid #f1f5f9">'
+                       f'<span style="font-size:16px;flex-shrink:0">📋</span>'
+                       f'<div>'
+                       f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
+                       f'{ref.get("name","—")}</div>'
+                       f'<div style="font-size:11px;color:#64748b;margin-top:2px">'
+                       f'{ref.get("description","")}</div>'
+                       + (f'<a href="{ref["url"]}" target="_blank" '
+                          f'style="font-size:11px;color:#2563eb;word-break:break-all">'
+                          f'{ref["url"]}</a>'
+                          if ref.get("url") else "")
+                       + '</div></div>'
+                       if ref else "")
+                    + '</div>',
                     unsafe_allow_html=True)
 
             _, dl1 = st.columns([3, 1])
             with dl1:
                 rc_rows = [{
+                    "Finding #":       i,
                     "Category":        rc.get("category",""),
                     "Dominant Metric": rc.get("dominant_metric",""),
                     "Score Evidence":  rc.get("score_evidence",""),
@@ -426,7 +1250,7 @@ elif page == "insights":
                     "User Impact":     rc.get("user_impact",""),
                     "Framework":       rc.get("framework_reference",{}).get("name",""),
                     "Framework URL":   rc.get("framework_reference",{}).get("url",""),
-                } for rc in gov["root_causes"]]
+                } for i, rc in enumerate(gov["root_causes"],1)]
                 green_download(
                     "⬇ Download Root Causes",
                     to_excel_bytes(pd.DataFrame(rc_rows)),
@@ -442,15 +1266,15 @@ elif page == "insights":
             if gov.get("gov_generated_at"):
                 st.caption(f"Generated at {gov['gov_generated_at']}")
 
-            # Priority summary strip
+            # Priority strip
             prio_counts = {"Critical": 0, "High": 0, "Medium": 0}
             for rec in gov["recommendations"]:
-                p = rec.get("priority", "Medium")
+                p = rec.get("priority","Medium")
                 if p in prio_counts:
                     prio_counts[p] += 1
-            pc1, pc2, pc3, _ = st.columns([1, 1, 1, 3])
+            pc1, pc2, pc3, _ = st.columns([1,1,1,3])
             for col, (p, clr) in zip(
-                    [pc1, pc2, pc3],
+                    [pc1,pc2,pc3],
                     [("Critical","#dc2626"),("High","#d97706"),("Medium","#2563eb")]):
                 col.markdown(
                     f'<div style="background:white;border:1px solid {clr}40;'
@@ -458,25 +1282,17 @@ elif page == "insights":
                     f'text-align:center">'
                     f'<div style="font-size:10px;color:#64748b;font-weight:700">{p}</div>'
                     f'<div style="font-size:22px;font-weight:800;color:{clr}">'
-                    f'{prio_counts[p]}</div>'
-                    f'</div>',
+                    f'{prio_counts[p]}</div></div>',
                     unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
-            for rec in gov["recommendations"]:
-                priority = rec.get("priority", "Medium")
+            for idx, rec in enumerate(gov["recommendations"], 1):
+                priority = rec.get("priority","Medium")
                 p_color  = rec.get("priority_color",
-                                   PRIORITY_COLORS.get(priority, "#64748b"))
-                ref      = rec.get("framework_reference", {})
-                metric   = rec.get("metric", "")
-                LEGACY_COLORS = {
-                    "Decision Flip":        JUDGE_COLORS[0],
-                    "Fairness Degradation": JUDGE_COLORS[1],
-                    "Safety_Drift":         JUDGE_COLORS[2],
-                    "Tone Inequality":      JUDGE_COLORS[3],
-                    "Stereotype Injection": JUDGE_COLORS[4],
-                }
-                m_color = LEGACY_COLORS.get(metric, "#6366f1")
+                                   PRIORITY_COLORS.get(priority,"#64748b"))
+                ref      = rec.get("framework_reference",{})
+                metric   = rec.get("metric","")
+                m_color  = LEGACY_COLORS.get(metric,"#6366f1")
 
                 st.markdown(
                     f'<div style="background:white;border:1px solid #e2e8f0;'
@@ -487,6 +1303,8 @@ elif page == "insights":
                     f'<div style="display:flex;align-items:center;'
                     f'justify-content:space-between;margin-bottom:12px">'
                     f'<div style="display:flex;align-items:center;gap:8px">'
+                    f'<span style="background:#f1f5f9;color:#475569;font-size:11px;'
+                    f'font-weight:700;padding:2px 10px;border-radius:20px">#{idx}</span>'
                     f'<span style="background:{p_color};color:white;padding:3px 12px;'
                     f'border-radius:20px;font-size:10px;font-weight:800">{priority}</span>'
                     f'<span style="font-size:13px;font-weight:700;color:#0f172a">'
@@ -514,23 +1332,27 @@ elif page == "insights":
                     f'{rec.get("expected_impact","—")}</div>'
                     f'</div>'
 
-                    f'<div style="display:flex;align-items:center;gap:8px;'
-                    f'padding-top:8px;border-top:1px solid #f1f5f9">'
-                    f'<span style="font-size:16px">📋</span>'
-                    f'<div>'
-                    f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
-                    f'{ref.get("name","—")}</div>'
-                    f'<div style="font-size:11px;color:#64748b">'
-                    f'{ref.get("description","")}</div>'
-                    + (f'<a href="{ref["url"]}" target="_blank" '
-                       f'style="font-size:11px;color:#2563eb">{ref["url"]}</a>'
-                       if ref.get("url") else "")
-                    + '</div></div></div>',
+                    + (f'<div style="display:flex;align-items:flex-start;gap:8px;'
+                       f'padding-top:8px;border-top:1px solid #f1f5f9">'
+                       f'<span style="font-size:16px;flex-shrink:0">📋</span>'
+                       f'<div>'
+                       f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
+                       f'{ref.get("name","—")}</div>'
+                       f'<div style="font-size:11px;color:#64748b;margin-top:2px">'
+                       f'{ref.get("description","")}</div>'
+                       + (f'<a href="{ref["url"]}" target="_blank" '
+                          f'style="font-size:11px;color:#2563eb;word-break:break-all">'
+                          f'{ref["url"]}</a>'
+                          if ref.get("url") else "")
+                       + '</div></div>'
+                       if ref else "")
+                    + '</div>',
                     unsafe_allow_html=True)
 
             _, dl2 = st.columns([3, 1])
             with dl2:
                 rec_rows = [{
+                    "#":               i,
                     "Priority":        rec.get("priority",""),
                     "Category":        rec.get("category",""),
                     "Metric":          rec.get("metric",""),
@@ -538,7 +1360,7 @@ elif page == "insights":
                     "Expected Impact": rec.get("expected_impact",""),
                     "Framework":       rec.get("framework_reference",{}).get("name",""),
                     "Framework URL":   rec.get("framework_reference",{}).get("url",""),
-                } for rec in gov["recommendations"]]
+                } for i, rec in enumerate(gov["recommendations"],1)]
                 green_download(
                     "⬇ Download Recommendations",
                     to_excel_bytes(pd.DataFrame(rec_rows)),
