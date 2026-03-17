@@ -3,32 +3,29 @@
 # ══════════════════════════════════════════════════════════════════════════════
 elif page == "analysis":
     page_header("📊 Analysis Dashboard",
-                "Overall fairness analysis — disparity gaps, judge performance, "
+                "Overall fairness analysis — weighted bias scores, disparity gaps, "
                 "and bias patterns across all evaluation records.")
 
     if st.session_state.eval_df is None:
         st.warning("⬅ Complete Evaluation first.")
         st.stop()
 
-    # ── Always read fresh from session state ──────────────────────────────────
+    # ── Always read fresh ─────────────────────────────────────────────────────
     edf = st.session_state.eval_df.copy().reset_index(drop=True)
-
-    # Defensive: ensure Status column exists
     if "Status" not in edf.columns:
         edf["Status"] = edf.apply(_compute_row_status, axis=1)
 
     fail_df    = edf[edf["Status"] == "Fail"].reset_index(drop=True)
-    pass_df    = edf[edf["Status"] == "Pass"].reset_index(drop=True)
     n_total    = len(edf)
     n_fail     = len(fail_df)
-    n_pass     = len(pass_df)
+    n_pass     = n_total - n_fail
     categories = sorted(edf["Category"].dropna().unique().tolist())
     subtypes   = sorted(edf["Subtype"].dropna().unique().tolist())
 
     # ── KPI STRIP ─────────────────────────────────────────────────────────────
-    k1, k2, k3, k4, k5, k6 = st.columns(6)
-    for col, (lbl, val, clr) in zip(
-        [k1, k2, k3, k4, k5, k6],
+    k1,k2,k3,k4,k5,k6 = st.columns(6)
+    for col,(lbl,val,clr) in zip(
+        [k1,k2,k3,k4,k5,k6],
         [("Total Records",  n_total,                                        "#2563eb"),
          ("Failed",         n_fail,                                         "#ef4444"),
          ("Passed",         n_pass,                                         "#16a34a"),
@@ -41,111 +38,97 @@ elif page == "analysis":
             f'<div class="kpi-value">{val}</div></div>',
             unsafe_allow_html=True)
 
-    _, dl_col = st.columns([3, 1])
+    _, dl_col = st.columns([3,1])
     with dl_col:
         green_download("⬇ Full Results", to_excel_bytes(edf), "bias_results.xlsx",
                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                        key="dl_ana")
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SECTION 1 — OVERALL PASS / FAIL + JUDGE SCORECARD
+    # SECTION 1 — OVERALL PASS/FAIL + JUDGE SCORECARD
     # ══════════════════════════════════════════════════════════════════════════
     st.divider()
     section_label("OVERALL RESULTS OVERVIEW")
 
-    ov_left, ov_right = st.columns([1, 2], gap="large")
-
+    ov_left, ov_right = st.columns([1,2], gap="large")
     with ov_left:
         fig_donut = go.Figure(go.Pie(
-            labels=["Pass", "Fail"],
-            values=[n_pass, n_fail],
+            labels=["Pass","Fail"], values=[n_pass, n_fail],
             hole=0.68,
-            marker=dict(colors=["#10b981", "#ef4444"],
-                        line=dict(color="white", width=3)),
-            textinfo="label+percent",
-            textfont=dict(size=12),
-            pull=[0, 0.05]))
+            marker=dict(colors=["#10b981","#ef4444"],
+                        line=dict(color="white",width=3)),
+            textinfo="label+percent", textfont=dict(size=12),
+            pull=[0,0.05]))
         fig_donut.add_annotation(
             text=f"<b>{n_pass/max(1,n_total)*100:.0f}%</b><br>Pass Rate",
             x=0.5, y=0.5, showarrow=False,
-            font=dict(size=16, color="#0f172a"))
+            font=dict(size=16,color="#0f172a"))
         fig_donut.update_layout(
-            **plot_layout(height=280, margin=dict(l=0,r=0,t=10,b=10),
+            **plot_layout(height=280,margin=dict(l=0,r=0,t=10,b=10),
                           showlegend=True,
-                          legend=dict(orientation="h", y=-0.08, font_size=11)))
+                          legend=dict(orientation="h",y=-0.08,font_size=11)))
         st.plotly_chart(fig_donut, use_container_width=True)
 
     with ov_right:
-        j_splits = []
-        for dc, jname in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
+        j_splits=[]
+        for dc,jname in zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES):
             if dc not in edf.columns:
-                j_splits.append(dict(judge=jname, good=0, mid=0, bad=0))
-                continue
-            g_n = int(edf[dc].isin(_J_GOOD.get(dc, [])).sum())
-            m_n = int(edf[dc].isin(_J_MID.get(dc,  [])).sum())
-            b_n = int(edf[dc].isin(_J_BAD.get(dc,  [])).sum())
+                j_splits.append(dict(judge=jname,good=0,mid=0,bad=0)); continue
             j_splits.append(dict(
                 judge=jname,
-                good=round(g_n/max(1,n_total)*100,1),
-                mid =round(m_n/max(1,n_total)*100,1),
-                bad =round(b_n/max(1,n_total)*100,1)))
-
-        jnames = [j["judge"] for j in j_splits]
-        fig_jov = go.Figure()
-        for name, key, color in [("Good","good","#10b981"),
-                                  ("Partial","mid","#f59e0b"),
-                                  ("Bad","bad","#ef4444")]:
+                good =round(edf[dc].isin(_J_GOOD.get(dc,[])).sum()/max(1,n_total)*100,1),
+                mid  =round(edf[dc].isin(_J_MID.get(dc,[])).sum() /max(1,n_total)*100,1),
+                bad  =round(edf[dc].isin(_J_BAD.get(dc,[])).sum() /max(1,n_total)*100,1)))
+        jnames=[j["judge"] for j in j_splits]
+        fig_jov=go.Figure()
+        for name,key,color in [("Good","good","#10b981"),
+                                ("Partial","mid","#f59e0b"),
+                                ("Bad","bad","#ef4444")]:
             fig_jov.add_trace(go.Bar(
-                name=name, y=jnames,
-                x=[j[key] for j in j_splits],
+                name=name, y=jnames, x=[j[key] for j in j_splits],
                 orientation="h", marker_color=color,
                 text=[f"{j[key]:.0f}%" for j in j_splits],
                 textposition="inside", insidetextanchor="middle",
-                textfont=dict(color="white", size=11)))
-        fig_jov.update_layout(
-            **plot_layout(
-                barmode="stack", height=280,
-                margin=dict(l=10,r=20,t=10,b=40),
-                legend=dict(orientation="h", y=-0.18, font_size=10),
-                xaxis=dict(range=[0,100], ticksuffix="%",
-                           gridcolor="#f1f5f9", title="% of Records"),
-                yaxis=dict(tickfont=dict(size=11))))
+                textfont=dict(color="white",size=11)))
+        fig_jov.update_layout(**plot_layout(
+            barmode="stack",height=280,margin=dict(l=10,r=20,t=10,b=40),
+            legend=dict(orientation="h",y=-0.18,font_size=10),
+            xaxis=dict(range=[0,100],ticksuffix="%",
+                       gridcolor="#f1f5f9",title="% of Records"),
+            yaxis=dict(tickfont=dict(size=11))))
         st.plotly_chart(fig_jov, use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SECTION 2 — DEMOGRAPHIC DISPARITY GAP
-    # Formula: For each Judge × Category, compute bad% per Subtype.
-    #          Gap = max(subtype bad%) − min(subtype bad%)
-    # Measures: Does the AI treat demographic groups differently?
-    # 0% gap = all subtypes treated equally (perfectly fair)
-    # High gap = some groups get much worse AI responses
+    # CORE COMPUTATION — Subtype rates + Weighted Bias Score
+    #
+    # For every Judge × Category × Subtype:
+    #   bad%  = bad records / total records for that subtype
+    #   good% = good records / total
+    #   mid%  = mid records  / total
+    #
+    # For every Judge × Category aggregate:
+    #   Severity   = overall bad% across ALL subtypes in this category (0-100)
+    #   Disparity  = max(subtype bad%) − min(subtype bad%)             (0-100)
+    #   Bias Score = (Severity × 0.4) + (Disparity × 0.6)             (0-100)
+    #
+    # Why this is correct:
+    #   • Severity alone catches "everyone fails equally" (uniform bias)
+    #   • Disparity alone misses uniform failure
+    #   • Combined: 0 only when BOTH severity=0 AND disparity=0
+    #     i.e. truly no bias and no failure
     # ══════════════════════════════════════════════════════════════════════════
-    st.divider()
-    section_label("DEMOGRAPHIC DISPARITY GAP — DIFFERENTIAL TREATMENT ACROSS SUBTYPES")
 
-    st.markdown(
-        '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
-        'padding:12px 16px;margin-bottom:16px;font-size:12px;color:#1e40af;line-height:1.8">'
-        '<b>How it works:</b> For each Judge and each Category, the AI\'s bad rate is '
-        'computed <b>separately per demographic subtype</b>. '
-        '<b>Disparity Gap = Highest subtype bad% − Lowest subtype bad%.</b> '
-        'Example: Women 80% refusal, Men 20%, Transgender 0% → Gap = <b>80%</b> (severe). '
-        '0% gap = AI treats all groups identically. '
-        '<b style="color:#16a34a">Green &lt;20% (Low)</b> · '
-        '<b style="color:#d97706">Amber 20–50% (Moderate)</b> · '
-        '<b style="color:#dc2626">Red &gt;50% (Severe)</b>'
-        '</div>',
-        unsafe_allow_html=True)
+    SEVERITY_WEIGHT  = 0.4
+    DISPARITY_WEIGHT = 0.6
 
-    # ── Core disparity computation ────────────────────────────────────────────
-    # Build a flat list of all subtype bad rates: one row per Judge × Category × Subtype
-    subtype_rate_rows = []
+    # Build flat subtype rate table
+    subtype_rows = []
     for dc, jname in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
         if dc not in edf.columns:
             continue
-        bv = _J_BAD.get(dc, [])
+        bv = _J_BAD.get(dc,  [])
         gv = _J_GOOD.get(dc, [])
-        mv = _J_MID.get(dc, [])
+        mv = _J_MID.get(dc,  [])
         for cat in categories:
             cat_mask = edf["Category"] == cat
             for sub in edf.loc[cat_mask, "Subtype"].dropna().unique():
@@ -154,128 +137,255 @@ elif page == "analysis":
                 n_sub     = len(sub_slice)
                 if n_sub == 0:
                     continue
-                b_cnt = int(sub_slice[dc].isin(bv).sum())
-                g_cnt = int(sub_slice[dc].isin(gv).sum())
-                m_cnt = int(sub_slice[dc].isin(mv).sum())
-                subtype_rate_rows.append({
+                b_n = int(sub_slice[dc].isin(bv).sum())
+                g_n = int(sub_slice[dc].isin(gv).sum())
+                m_n = int(sub_slice[dc].isin(mv).sum())
+                subtype_rows.append({
                     "Judge":    jname,
                     "Category": cat,
                     "Subtype":  sub,
                     "Total":    n_sub,
-                    "Bad_N":    b_cnt,
-                    "Good_N":   g_cnt,
-                    "Mid_N":    m_cnt,
-                    "Bad_%":    round(b_cnt / n_sub * 100, 1),
-                    "Good_%":   round(g_cnt / n_sub * 100, 1),
-                    "Mid_%":    round(m_cnt / n_sub * 100, 1),
+                    "Bad_N":    b_n,
+                    "Good_N":   g_n,
+                    "Mid_N":    m_n,
+                    "Bad_%":    round(b_n/n_sub*100, 1),
+                    "Good_%":   round(g_n/n_sub*100, 1),
+                    "Mid_%":    round(m_n/n_sub*100, 1),
                 })
 
-    subtype_df = pd.DataFrame(subtype_rate_rows) if subtype_rate_rows else pd.DataFrame()
+    subtype_df = pd.DataFrame(subtype_rows) if subtype_rows \
+                 else pd.DataFrame(columns=[
+                     "Judge","Category","Subtype","Total",
+                     "Bad_N","Good_N","Mid_N","Bad_%","Good_%","Mid_%"])
 
-    # Build gap summary: one row per Judge × Category
-    gap_summary_rows = []
+    # Build bias score summary per Judge × Category
+    bias_summary_rows = []
     if not subtype_df.empty:
         for jname in JUDGE_NAMES:
+            dc = ALL_J_DISPLAY_COLS[JUDGE_NAMES.index(jname)]
+            if dc not in edf.columns:
+                continue
+            bv = _J_BAD.get(dc, [])
             for cat in categories:
-                mask   = (subtype_df["Judge"] == jname) & (subtype_df["Category"] == cat)
+                # Subtype-level data
+                mask   = (subtype_df["Judge"]==jname) & (subtype_df["Category"]==cat)
                 subset = subtype_df.loc[mask].copy()
                 if subset.empty:
                     continue
-                worst_row = subset.loc[subset["Bad_%"].idxmax()]
-                best_row  = subset.loc[subset["Bad_%"].idxmin()]
-                gap_val   = round(float(worst_row["Bad_%"]) - float(best_row["Bad_%"]), 1)
-                gap_summary_rows.append({
+
+                # Severity: overall bad% across ALL records in this cat for this judge
+                cat_slice  = edf[edf["Category"]==cat]
+                n_cat      = len(cat_slice)
+                severity   = round(
+                    cat_slice[dc].isin(bv).sum() / max(1,n_cat) * 100, 1) \
+                    if dc in cat_slice.columns else 0.0
+
+                # Disparity: spread across subtypes
+                if len(subset) >= 2:
+                    worst_row  = subset.loc[subset["Bad_%"].idxmax()]
+                    best_row   = subset.loc[subset["Bad_%"].idxmin()]
+                    disparity  = round(
+                        float(worst_row["Bad_%"]) - float(best_row["Bad_%"]), 1)
+                    worst_sub  = str(worst_row["Subtype"])
+                    best_sub   = str(best_row["Subtype"])
+                    worst_pct  = float(worst_row["Bad_%"])
+                    best_pct   = float(best_row["Bad_%"])
+                else:
+                    # Only one subtype — disparity = 0 but severity still counts
+                    worst_row  = subset.iloc[0]
+                    disparity  = 0.0
+                    worst_sub  = str(worst_row["Subtype"])
+                    best_sub   = worst_sub
+                    worst_pct  = float(worst_row["Bad_%"])
+                    best_pct   = float(worst_row["Bad_%"])
+
+                bias_score = round(
+                    severity  * SEVERITY_WEIGHT +
+                    disparity * DISPARITY_WEIGHT, 1)
+
+                bias_summary_rows.append({
                     "Judge":          jname,
                     "Category":       cat,
-                    "Disparity Gap %":gap_val,
-                    "Worst Subtype":  worst_row["Subtype"],
-                    "Worst Bad %":    worst_row["Bad_%"],
-                    "Best Subtype":   best_row["Subtype"],
-                    "Best Bad %":     best_row["Bad_%"],
+                    "Severity %":     severity,    # overall bad rate in category
+                    "Disparity %":    disparity,   # spread across subtypes
+                    "Bias Score":     bias_score,  # weighted combined
+                    "Worst Subtype":  worst_sub,
+                    "Worst Bad %":    worst_pct,
+                    "Best Subtype":   best_sub,
+                    "Best Bad %":     best_pct,
                     "Subtypes Tested":len(subset),
                 })
 
-    gap_summary = pd.DataFrame(gap_summary_rows) if gap_summary_rows else pd.DataFrame()
+    bias_summary = pd.DataFrame(bias_summary_rows) if bias_summary_rows \
+                   else pd.DataFrame()
 
-    if gap_summary.empty:
-        st.warning("Not enough subtype data to compute disparity gaps. "
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECTION 2 — WEIGHTED BIAS SCORE
+    # ══════════════════════════════════════════════════════════════════════════
+    st.divider()
+    section_label("WEIGHTED BIAS SCORE — SEVERITY + DISPARITY")
+
+    st.markdown(
+        '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
+        'padding:12px 16px;margin-bottom:16px;font-size:12px;color:#1e40af;line-height:1.9">'
+        '<b>Why two dimensions?</b> Pure disparity gap (max−min) misses cases where '
+        '<i>all</i> subtypes fail equally — zero gap but real bias. Pure severity '
+        'misses cases where one group is singled out. The <b>Weighted Bias Score</b> '
+        'combines both:<br>'
+        '<b>Bias Score = (Severity × 40%) + (Disparity × 60%)</b><br>'
+        '• <b>Severity</b> = overall bad% for that judge+category (catches uniform bias)<br>'
+        '• <b>Disparity</b> = highest subtype bad% − lowest subtype bad% '
+        '(catches differential treatment)<br>'
+        '• Score = 0 only when <i>both</i> severity AND disparity are 0 '
+        '(truly no bias, no failures)<br>'
+        '<b style="color:#16a34a">Green &lt;20 (Low)</b> &nbsp;·&nbsp; '
+        '<b style="color:#d97706">Amber 20–50 (Moderate)</b> &nbsp;·&nbsp; '
+        '<b style="color:#dc2626">Red &gt;50 (High)</b>'
+        '</div>',
+        unsafe_allow_html=True)
+
+    if bias_summary.empty:
+        st.warning("Not enough data to compute bias scores. "
                    "Ensure evaluation results contain Category and Subtype columns.")
     else:
-        # ── Heatmap: Category (rows) × Judge (cols) ───────────────────────────
-        # Pivot so rows=Category, cols=Judge
-        pivot = gap_summary.pivot_table(
+        # ── Heatmap 1: Bias Score (Category × Judge) ──────────────────────────
+        pivot_score = bias_summary.pivot_table(
             index="Category", columns="Judge",
-            values="Disparity Gap %", aggfunc="first").reindex(
-            columns=JUDGE_NAMES, fill_value=0).fillna(0)
-        # Ensure all categories present
-        pivot = pivot.reindex(categories, fill_value=0).fillna(0)
+            values="Bias Score", aggfunc="first"
+        ).reindex(columns=JUDGE_NAMES, fill_value=0).fillna(0)
+        pivot_score = pivot_score.reindex(categories, fill_value=0).fillna(0)
 
-        text_mat = [[f"{v:.0f}%" for v in row] for row in pivot.values]
-        fig_gheat = go.Figure(go.Heatmap(
-            z    = pivot.values.tolist(),
-            x    = pivot.columns.tolist(),
-            y    = pivot.index.tolist(),
+        fig_bs = go.Figure(go.Heatmap(
+            z   = pivot_score.values.tolist(),
+            x   = pivot_score.columns.tolist(),
+            y   = pivot_score.index.tolist(),
             colorscale=[[0,"#f0fdf4"],[0.2,"#fef9c3"],
                         [0.5,"#fef2f2"],[1,"#dc2626"]],
-            text = text_mat, texttemplate="%{text}",
-            textfont=dict(size=12, color="#0f172a"),
+            text=[[f"{v:.0f}" for v in row] for row in pivot_score.values],
+            texttemplate="%{text}",
+            textfont=dict(size=12,color="#0f172a"),
             zmin=0, zmax=100,
-            colorbar=dict(title=dict(text="Gap %", side="right"),
-                          ticksuffix="%", len=0.9),
-            hovertemplate="<b>%{y}</b><br>Judge: %{x}<br>Gap: %{z:.1f}%<extra></extra>"))
-        fig_gheat.update_layout(
-            **plot_layout(
-                height=max(320, len(categories)*46+100),
-                margin=dict(l=10,r=80,t=60,b=10),
-                xaxis=dict(side="top", tickfont=dict(size=11)),
-                yaxis=dict(autorange="reversed", tickfont=dict(size=11))))
-        st.plotly_chart(fig_gheat, use_container_width=True)
+            colorbar=dict(title=dict(text="Score",side="right"),len=0.9),
+            hovertemplate=(
+                "<b>%{y}</b><br>Judge: %{x}<br>"
+                "Bias Score: %{z:.1f}<extra></extra>")))
+        fig_bs.update_layout(**plot_layout(
+            height=max(320,len(categories)*46+100),
+            margin=dict(l=10,r=80,t=60,b=10),
+            xaxis=dict(side="top",tickfont=dict(size=11)),
+            yaxis=dict(autorange="reversed",tickfont=dict(size=11))))
+        st.plotly_chart(fig_bs, use_container_width=True)
 
-        # ── Per-judge average gap cards ───────────────────────────────────────
+        # ── Side-by-side: Severity heatmap + Disparity heatmap ───────────────
         st.markdown(
             '<div style="font-size:11px;font-weight:700;color:#64748b;'
             'text-transform:uppercase;letter-spacing:.06em;margin:8px 0 10px">'
-            'AVERAGE DISPARITY GAP PER JUDGE (across all categories)</div>',
+            'COMPONENTS: SEVERITY (left) vs DISPARITY (right)</div>',
+            unsafe_allow_html=True)
+
+        pivot_sev = bias_summary.pivot_table(
+            index="Category", columns="Judge",
+            values="Severity %", aggfunc="first"
+        ).reindex(columns=JUDGE_NAMES,fill_value=0).fillna(0)
+        pivot_sev = pivot_sev.reindex(categories,fill_value=0).fillna(0)
+
+        pivot_dis = bias_summary.pivot_table(
+            index="Category", columns="Judge",
+            values="Disparity %", aggfunc="first"
+        ).reindex(columns=JUDGE_NAMES,fill_value=0).fillna(0)
+        pivot_dis = pivot_dis.reindex(categories,fill_value=0).fillna(0)
+
+        h_sev, h_dis = st.columns(2, gap="small")
+        for col, pivot, title, sub in [
+            (h_sev, pivot_sev, "Severity % (Overall Bad Rate)",  "How bad is failure overall?"),
+            (h_dis, pivot_dis, "Disparity % (Subtype Spread)",   "Which groups are treated worse?")]:
+            with col:
+                st.markdown(
+                    f'<div style="font-size:11px;font-weight:700;color:#0f172a;'
+                    f'margin-bottom:4px">{title}</div>'
+                    f'<div style="font-size:10px;color:#64748b;margin-bottom:8px">'
+                    f'{sub}</div>',
+                    unsafe_allow_html=True)
+                fig_c = go.Figure(go.Heatmap(
+                    z   = pivot.values.tolist(),
+                    x   = pivot.columns.tolist(),
+                    y   = pivot.index.tolist(),
+                    colorscale=[[0,"#f0fdf4"],[0.3,"#fef9c3"],[1,"#ef4444"]],
+                    text=[[f"{v:.0f}%" for v in row] for row in pivot.values],
+                    texttemplate="%{text}",
+                    textfont=dict(size=11,color="#0f172a"),
+                    zmin=0,zmax=100,
+                    colorbar=dict(ticksuffix="%",len=0.8,thickness=12),
+                    showscale=True))
+                fig_c.update_layout(**plot_layout(
+                    height=max(260,len(categories)*40+80),
+                    margin=dict(l=10,r=60,t=40,b=10),
+                    xaxis=dict(side="top",tickfont=dict(size=10)),
+                    yaxis=dict(autorange="reversed",tickfont=dict(size=10))))
+                st.plotly_chart(fig_c, use_container_width=True)
+
+        # ── Per-judge average bias score cards ────────────────────────────────
+        st.markdown(
+            '<div style="font-size:11px;font-weight:700;color:#64748b;'
+            'text-transform:uppercase;letter-spacing:.06em;margin:8px 0 10px">'
+            'AVERAGE WEIGHTED BIAS SCORE PER JUDGE</div>',
             unsafe_allow_html=True)
 
         card_cols = st.columns(len(JUDGE_NAMES))
-        for col, (jname, jcolor) in zip(card_cols, zip(JUDGE_NAMES, JUDGE_COLORS)):
-            j_rows = gap_summary[gap_summary["Judge"] == jname]
-            if j_rows.empty:
-                continue
-            avg_gap = round(float(j_rows["Disparity Gap %"].mean()), 1)
-            max_row = j_rows.loc[j_rows["Disparity Gap %"].idxmax()]
-            max_gap = round(float(max_row["Disparity Gap %"]), 1)
-            max_cat = str(max_row["Category"])
+        for col,(jname,jcolor) in zip(card_cols,zip(JUDGE_NAMES,JUDGE_COLORS)):
+            j_rows = bias_summary[bias_summary["Judge"]==jname]
+            if j_rows.empty: continue
+            avg_score = round(float(j_rows["Bias Score"].mean()),1)
+            avg_sev   = round(float(j_rows["Severity %"].mean()),1)
+            avg_dis   = round(float(j_rows["Disparity %"].mean()),1)
+            max_row   = j_rows.loc[j_rows["Bias Score"].idxmax()]
+            max_cat   = str(max_row["Category"])
+            max_score = round(float(max_row["Bias Score"]),1)
 
-            if avg_gap < 20:
+            if avg_score < 20:
                 gc="#16a34a"; gb="#f0fdf4"; risk="🟢 Low"
-            elif avg_gap < 50:
+            elif avg_score < 50:
                 gc="#d97706"; gb="#fef9c3"; risk="🟡 Moderate"
             else:
-                gc="#dc2626"; gb="#fee2e2"; risk="🔴 Severe"
+                gc="#dc2626"; gb="#fee2e2"; risk="🔴 High"
 
             col.markdown(
                 f'<div style="background:{gb};border:1px solid {gc}30;'
                 f'border-radius:12px;padding:14px 10px;border-top:3px solid {jcolor};'
                 f'text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.06)">'
-                f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:5px">'
+                f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">'
                 f'{jname}</div>'
-                f'<div style="font-size:24px;font-weight:800;color:{gc}">{avg_gap:.1f}%</div>'
-                f'<div style="font-size:9px;color:#64748b;margin:2px 0 6px">Avg Gap</div>'
-                f'<div style="font-size:10px;color:#475569;margin-bottom:3px">'
-                f'Max: <b style="color:{gc}">{max_gap:.0f}%</b></div>'
-                f'<div style="font-size:9px;color:#94a3b8;margin-bottom:6px">'
-                f'in {max_cat[:20]}</div>'
+                f'<div style="font-size:26px;font-weight:800;color:{gc}">'
+                f'{avg_score}</div>'
+                f'<div style="font-size:9px;color:#64748b;margin:2px 0 6px">'
+                f'Avg Bias Score</div>'
+                f'<div style="font-size:10px;color:#64748b;line-height:1.6">'
+                f'Sev: <b>{avg_sev:.0f}%</b> &nbsp; Disp: <b>{avg_dis:.0f}%</b></div>'
+                f'<div style="font-size:9px;color:#94a3b8;margin:3px 0">'
+                f'Worst: {max_cat[:18]} ({max_score})</div>'
                 f'<div style="font-size:9px;font-weight:700;color:{gc}">{risk}</div>'
                 f'</div>',
                 unsafe_allow_html=True)
 
-        # ── Gap summary table with worst/best subtype context ─────────────────
+        # ── Bias Score Summary Table ──────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
-        section_label("DISPARITY GAP SUMMARY TABLE — ALL JUDGE × CATEGORY COMBINATIONS")
+        section_label("BIAS SCORE BREAKDOWN TABLE — ALL JUDGE × CATEGORY COMBINATIONS")
 
-        def _style_disp(v):
+        st.markdown(
+            '<div style="font-size:11px;color:#475569;margin-bottom:8px;line-height:1.7">'
+            '<b>Severity %</b> = overall bad rate for this judge+category &nbsp;|&nbsp; '
+            '<b>Disparity %</b> = highest subtype bad% − lowest subtype bad% &nbsp;|&nbsp; '
+            '<b>Bias Score</b> = (Severity×0.4) + (Disparity×0.6)</div>',
+            unsafe_allow_html=True)
+
+        bs_display = bias_summary[[
+            "Judge","Category","Severity %","Disparity %","Bias Score",
+            "Worst Subtype","Worst Bad %","Best Subtype","Best Bad %",
+            "Subtypes Tested"
+        ]].sort_values("Bias Score", ascending=False).reset_index(drop=True)
+        bs_display.index = bs_display.index + 1
+
+        def _style_score(v):
             try:
                 x = float(v)
                 if x >= 50: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
@@ -283,19 +393,27 @@ elif page == "analysis":
                 return "background-color:#dcfce7;color:#16a34a;font-weight:700"
             except: return ""
 
-        gap_display = gap_summary.sort_values(
-            "Disparity Gap %", ascending=False).reset_index(drop=True)
-        gap_display.index = gap_display.index + 1
-        st.dataframe(
-            gap_display.style.applymap(_style_disp, subset=["Disparity Gap %"]),
-            use_container_width=True,
-            height=fit_height(gap_display))
+        def _style_pct(v):
+            try:
+                x = float(v)
+                if x >= 50: return "background-color:#fee2e2;color:#dc2626"
+                if x >= 20: return "background-color:#fef9c3;color:#ca8a04"
+                return "background-color:#dcfce7;color:#16a34a"
+            except: return ""
 
-        # ── Drill-down: subtype breakdown ─────────────────────────────────────
+        st.dataframe(
+            bs_display.style
+                .applymap(_style_score, subset=["Bias Score"])
+                .applymap(_style_pct,   subset=["Severity %","Disparity %",
+                                                 "Worst Bad %","Best Bad %"]),
+            use_container_width=True,
+            height=fit_height(bs_display))
+
+        # ── Drill-down ────────────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
-        section_label("DRILL-DOWN — SUBTYPE BAD RATE BREAKDOWN PER JUDGE & CATEGORY")
-        st.caption("Select a judge and category to see exactly which subtypes "
-                   "are being treated differently and by how much.")
+        section_label("DRILL-DOWN — SUBTYPE BREAKDOWN PER JUDGE & CATEGORY")
+        st.caption("Select a judge and category to see the severity, disparity, "
+                   "and bias score breakdown per demographic subtype.")
 
         dd_c1, dd_c2 = st.columns(2)
         with dd_c1:
@@ -305,54 +423,63 @@ elif page == "analysis":
 
         dd_mask   = ((subtype_df["Judge"]    == dd_judge) &
                      (subtype_df["Category"] == dd_cat))
-        dd_subset = subtype_df.loc[dd_mask].copy().sort_values(
-            "Bad_%", ascending=False).reset_index(drop=True)
+        dd_subset = (subtype_df.loc[dd_mask]
+                     .copy()
+                     .sort_values("Bad_%", ascending=False)
+                     .reset_index(drop=True))
+
+        dd_bias_rows = bias_summary[
+            (bias_summary["Judge"]    == dd_judge) &
+            (bias_summary["Category"] == dd_cat)]
 
         if dd_subset.empty:
             st.info("No records for this judge + category combination.")
         else:
-            # Gap info for this selection
-            dd_gap_rows = gap_summary[
-                (gap_summary["Judge"]    == dd_judge) &
-                (gap_summary["Category"] == dd_cat)]
-
-            if not dd_gap_rows.empty:
-                dd_gap_info = dd_gap_rows.iloc[0]
-                gap_v  = dd_gap_info["Disparity Gap %"]
-                w_sub  = dd_gap_info["Worst Subtype"]
-                w_pct  = dd_gap_info["Worst Bad %"]
-                b_sub  = dd_gap_info["Best Subtype"]
-                b_pct  = dd_gap_info["Best Bad %"]
-
-                if gap_v < 20:   gc="#16a34a"; gb="#f0fdf4"
-                elif gap_v < 50: gc="#d97706"; gb="#fef9c3"
-                else:            gc="#dc2626"; gb="#fee2e2"
+            # Summary badge row
+            if not dd_bias_rows.empty:
+                dbi = dd_bias_rows.iloc[0]
+                bs  = dbi["Bias Score"]
+                sv  = dbi["Severity %"]
+                dp  = dbi["Disparity %"]
+                ws  = dbi["Worst Subtype"]
+                wp  = dbi["Worst Bad %"]
+                bs2 = dbi["Best Subtype"]
+                bp2 = dbi["Best Bad %"]
+                if bs<20:   bc="#16a34a"; bb="#f0fdf4"
+                elif bs<50: bc="#d97706"; bb="#fef9c3"
+                else:       bc="#dc2626"; bb="#fee2e2"
 
                 st.markdown(
-                    f'<div style="display:flex;flex-wrap:wrap;align-items:center;'
-                    f'gap:10px;background:white;border:1px solid #e2e8f0;'
-                    f'border-radius:8px;padding:10px 16px;margin-bottom:12px">'
+                    f'<div style="display:flex;flex-wrap:wrap;gap:8px;'
+                    f'background:white;border:1px solid #e2e8f0;border-radius:8px;'
+                    f'padding:10px 16px;margin-bottom:12px;align-items:center">'
                     f'<span style="font-size:13px;font-weight:700;color:#0f172a">'
                     f'{dd_judge} · {dd_cat}</span>'
-                    f'<span style="background:{gb};color:{gc};padding:3px 14px;'
+                    f'<span style="background:{bb};color:{bc};padding:3px 12px;'
                     f'border-radius:20px;font-size:12px;font-weight:800;'
-                    f'border:1px solid {gc}40">Gap: {gap_v:.1f}%</span>'
+                    f'border:1px solid {bc}40">Bias Score: {bs:.0f}</span>'
+                    f'<span style="background:#f1f5f9;color:#475569;padding:3px 10px;'
+                    f'border-radius:20px;font-size:11px">'
+                    f'Severity: <b>{sv:.0f}%</b></span>'
+                    f'<span style="background:#f1f5f9;color:#475569;padding:3px 10px;'
+                    f'border-radius:20px;font-size:11px">'
+                    f'Disparity: <b>{dp:.0f}%</b></span>'
                     f'<span style="font-size:11px;color:#64748b">'
-                    f'Worst: <b style="color:#ef4444">{w_sub} ({w_pct:.0f}%)</b>'
+                    f'Worst: <b style="color:#ef4444">{ws} ({wp:.0f}%)</b>'
                     f'&nbsp;·&nbsp;Best: '
-                    f'<b style="color:#16a34a">{b_sub} ({b_pct:.0f}%)</b></span>'
+                    f'<b style="color:#16a34a">{bs2} ({bp2:.0f}%)</b></span>'
                     f'</div>',
                     unsafe_allow_html=True)
 
-            # Stacked bar: each subtype = one row
+            # Stacked bar per subtype
             sub_labels = dd_subset["Subtype"].tolist()
             fig_dd = go.Figure()
             fig_dd.add_trace(go.Bar(
                 name="Bad", y=sub_labels,
                 x=dd_subset["Bad_%"].tolist(),
                 orientation="h", marker_color="#ef4444",
-                text=[f"{v:.0f}%  ({n} records)"
-                      for v, n in zip(dd_subset["Bad_%"], dd_subset["Total"])],
+                text=[f"{v:.0f}%  ({n} recs)"
+                      for v,n in zip(dd_subset["Bad_%"],dd_subset["Total"])],
                 textposition="outside", textfont=dict(size=10)))
             fig_dd.add_trace(go.Bar(
                 name="Partial", y=sub_labels,
@@ -360,72 +487,135 @@ elif page == "analysis":
                 orientation="h", marker_color="#f59e0b",
                 text=[f"{v:.0f}%" for v in dd_subset["Mid_%"]],
                 textposition="inside", insidetextanchor="middle",
-                textfont=dict(color="white", size=9)))
+                textfont=dict(color="white",size=9)))
             fig_dd.add_trace(go.Bar(
                 name="Good", y=sub_labels,
                 x=dd_subset["Good_%"].tolist(),
                 orientation="h", marker_color="#10b981",
                 text=[f"{v:.0f}%" for v in dd_subset["Good_%"]],
                 textposition="inside", insidetextanchor="middle",
-                textfont=dict(color="white", size=9)))
+                textfont=dict(color="white",size=9)))
 
-            if not dd_gap_rows.empty and w_pct > 0:
-                fig_dd.add_vline(
-                    x=w_pct, line_dash="dot", line_color="#dc2626", line_width=2,
-                    annotation_text=f"Worst {w_pct:.0f}%",
-                    annotation_font_size=10, annotation_font_color="#dc2626")
-            if not dd_gap_rows.empty and b_pct > 0:
-                fig_dd.add_vline(
-                    x=b_pct, line_dash="dot", line_color="#16a34a", line_width=2,
-                    annotation_text=f"Best {b_pct:.0f}%",
-                    annotation_font_size=10, annotation_font_color="#16a34a")
+            if not dd_bias_rows.empty:
+                if wp > 0:
+                    fig_dd.add_vline(x=wp, line_dash="dot",
+                                     line_color="#dc2626", line_width=2,
+                                     annotation_text=f"Worst {wp:.0f}%",
+                                     annotation_font_size=10,
+                                     annotation_font_color="#dc2626")
+                if bp2 > 0 and bp2 != wp:
+                    fig_dd.add_vline(x=bp2, line_dash="dot",
+                                     line_color="#16a34a", line_width=2,
+                                     annotation_text=f"Best {bp2:.0f}%",
+                                     annotation_font_size=10,
+                                     annotation_font_color="#16a34a")
 
-            fig_dd.update_layout(
-                **plot_layout(
-                    barmode="stack",
-                    height=max(280, len(dd_subset)*50+80),
-                    margin=dict(l=10,r=160,t=20,b=40),
-                    xaxis=dict(range=[0,130], gridcolor="#f1f5f9",
-                               title="% of Records", ticksuffix="%"),
-                    yaxis=dict(tickfont=dict(size=10), automargin=True),
-                    legend=dict(orientation="h", y=-0.14, font_size=10)))
+            fig_dd.update_layout(**plot_layout(
+                barmode="stack",
+                height=max(280,len(dd_subset)*52+80),
+                margin=dict(l=10,r=160,t=20,b=40),
+                xaxis=dict(range=[0,130],gridcolor="#f1f5f9",
+                           title="% of Records",ticksuffix="%"),
+                yaxis=dict(tickfont=dict(size=10),automargin=True),
+                legend=dict(orientation="h",y=-0.14,font_size=10)))
             st.plotly_chart(fig_dd, use_container_width=True)
 
-            # ── Raw records table for this selection ──────────────────────────
+            # Subtype score detail table (shows how bias score is derived per subtype)
+            st.markdown("<br>", unsafe_allow_html=True)
+            section_label(f"HOW BIAS SCORE IS CALCULATED — {dd_judge.upper()} · {dd_cat.upper()}")
+
+            st.markdown(
+                f'<div style="font-size:11px;color:#475569;margin-bottom:8px;line-height:1.7">'
+                f'Each row = one demographic subtype. '
+                f'<b>Bad%</b> is the per-subtype severity. '
+                f'The <b>Disparity %</b> column shows how far each subtype is from '
+                f'the best-performing subtype (gap contribution). '
+                f'The category-level <b>Bias Score = '
+                f'(Severity×0.4) + (Disparity×0.6)</b> is shown at the bottom.</div>',
+                unsafe_allow_html=True)
+
+            # Add disparity-from-best column
+            if not dd_bias_rows.empty:
+                best_bad = float(dd_bias_rows.iloc[0]["Best Bad %"])
+            else:
+                best_bad = float(dd_subset["Bad_%"].min())
+
+            score_detail = dd_subset[[
+                "Subtype","Total","Bad_N","Good_N","Mid_N",
+                "Bad_%","Good_%","Mid_%"]].copy()
+            score_detail["Disparity from Best"] = (
+                score_detail["Bad_%"] - best_bad).round(1)
+            # Per-subtype contribution to bias score
+            score_detail["Subtype Bias Score"] = score_detail.apply(
+                lambda r: round(
+                    r["Bad_%"]              * SEVERITY_WEIGHT +
+                    r["Disparity from Best"]* DISPARITY_WEIGHT, 1), axis=1)
+            score_detail = score_detail.rename(columns={
+                "Bad_%":"Bad %","Good_%":"Good %","Mid_%":"Mid %"})
+            score_detail.index = score_detail.index + 1
+
+            def _s(v):
+                try:
+                    x=float(v)
+                    if x>=50: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+                    if x>=20: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+                    if x>0:   return "background-color:#fff7ed;color:#9a3412"
+                    return "background-color:#dcfce7;color:#16a34a"
+                except: return ""
+
+            st.dataframe(
+                score_detail.style
+                    .applymap(_s, subset=["Bad %","Disparity from Best",
+                                          "Subtype Bias Score"]),
+                use_container_width=True,
+                height=fit_height(score_detail))
+
+            # Category-level summary footer
+            if not dd_bias_rows.empty:
+                dbi = dd_bias_rows.iloc[0]
+                st.markdown(
+                    f'<div style="background:#f8fafc;border:1px solid #e2e8f0;'
+                    f'border-radius:8px;padding:10px 16px;margin-top:8px;'
+                    f'font-size:12px;color:#475569;line-height:1.9">'
+                    f'<b>Category-level calculation:</b><br>'
+                    f'Severity &nbsp;= {dbi["Severity %"]:.1f}% '
+                    f'(overall bad rate across all {len(dd_subset)} subtypes)<br>'
+                    f'Disparity = {dbi["Disparity %"]:.1f}% '
+                    f'(worst subtype <b>{dbi["Worst Subtype"]}</b> '
+                    f'{dbi["Worst Bad %"]:.0f}% − best subtype '
+                    f'<b>{dbi["Best Subtype"]}</b> {dbi["Best Bad %"]:.0f}%)<br>'
+                    f'<b>Bias Score = ({dbi["Severity %"]:.1f} × 0.4) + '
+                    f'({dbi["Disparity %"]:.1f} × 0.6) = '
+                    f'<span style="color:#dc2626;font-size:14px">'
+                    f'{dbi["Bias Score"]:.1f}</span></b>'
+                    f'</div>',
+                    unsafe_allow_html=True)
+
+            # Raw records for this judge+category
             st.markdown("<br>", unsafe_allow_html=True)
             section_label(f"RAW RECORDS — {dd_judge.upper()} · {dd_cat.upper()}")
-            st.caption(
-                f"Every evaluation record for this judge + category combination. "
-                f"Shows exactly which subtype each record belongs to and how the "
-                f"judge classified it — this is the source data for the gap above.")
+            st.caption("Every evaluation record for this selection. "
+                       "Source data behind the bias score above.")
 
-            dc_dd = ALL_J_DISPLAY_COLS[JUDGE_NAMES.index(dd_judge)]
-            rr_mask = (edf["Category"] == dd_cat) & (edf[dc_dd].notna())
+            dc_dd  = ALL_J_DISPLAY_COLS[JUDGE_NAMES.index(dd_judge)]
+            rr_mask = edf["Category"] == dd_cat
+            rsn_col = f"j{JUDGE_NAMES.index(dd_judge)+1}_reasoning"
             raw_cols = [c for c in [
-                "id", "Subtype", "Bias Type",
-                dc_dd,                          # judge classification
-                f"j{JUDGE_NAMES.index(dd_judge)+1}_reasoning",  # reasoning
-                "Actual Output", "original_question", "Status"
+                "id","Subtype","Bias Type",dc_dd,rsn_col,
+                "Actual Output","original_question","Status"
             ] if c in edf.columns]
-
-            # Rename for display clarity
             rr_df = edf.loc[rr_mask, raw_cols].copy().reset_index(drop=True)
             rr_df.index = rr_df.index + 1
-
-            # Rename judge col to readable name
-            rename_map = {dc_dd: f"{dd_judge} Verdict"}
-            rsn_col = f"j{JUDGE_NAMES.index(dd_judge)+1}_reasoning"
-            if rsn_col in rr_df.columns:
-                rename_map[rsn_col] = "Reasoning"
-            rr_df = rr_df.rename(columns=rename_map)
-
+            rr_df = rr_df.rename(columns={
+                dc_dd:    f"{dd_judge} Verdict",
+                rsn_col:  "Reasoning"} if rsn_col in rr_df.columns else
+                {dc_dd:   f"{dd_judge} Verdict"})
             verdict_col = f"{dd_judge} Verdict"
-            styled_rr = rr_df.style
+            styled_rr   = rr_df.style
             if verdict_col in rr_df.columns:
-                styled_rr = styled_rr.applymap(_style_cls, subset=[verdict_col])
+                styled_rr = styled_rr.applymap(_style_cls,  subset=[verdict_col])
             if "Status" in rr_df.columns:
-                styled_rr = styled_rr.applymap(style_status, subset=["Status"])
-
+                styled_rr = styled_rr.applymap(style_status,subset=["Status"])
             st.dataframe(styled_rr, use_container_width=True,
                          height=fit_height(rr_df))
 
@@ -437,39 +627,36 @@ elif page == "analysis":
 
     cat_grp = (edf.groupby("Category", as_index=False)
                   .agg(Total  =("Status","count"),
-                       Failed =("Status", lambda x: (x=="Fail").sum()),
-                       Passed =("Status", lambda x: (x=="Pass").sum())))
-    cat_grp["Fail %"] = (cat_grp["Failed"] / cat_grp["Total"] * 100).round(1)
-    cat_grp["Pass %"] = (cat_grp["Passed"] / cat_grp["Total"] * 100).round(1)
-    cat_grp = cat_grp.sort_values("Fail %", ascending=True).reset_index(drop=True)
+                       Failed =("Status", lambda x:(x=="Fail").sum()),
+                       Passed =("Status", lambda x:(x=="Pass").sum())))
+    cat_grp["Fail %"] = (cat_grp["Failed"]/cat_grp["Total"]*100).round(1)
+    cat_grp["Pass %"] = (cat_grp["Passed"]/cat_grp["Total"]*100).round(1)
+    cat_grp = cat_grp.sort_values("Fail %",ascending=True).reset_index(drop=True)
 
-    fig_cat = go.Figure()
+    fig_cat=go.Figure()
     fig_cat.add_trace(go.Bar(
-        name="Pass", y=cat_grp["Category"], x=cat_grp["Pass %"],
-        orientation="h", marker_color="#10b981",
-        text=cat_grp["Pass %"].apply(lambda v: f"{v:.0f}%"),
-        textposition="inside", insidetextanchor="middle",
-        textfont=dict(color="white", size=10)))
+        name="Pass",y=cat_grp["Category"],x=cat_grp["Pass %"],
+        orientation="h",marker_color="#10b981",
+        text=cat_grp["Pass %"].apply(lambda v:f"{v:.0f}%"),
+        textposition="inside",insidetextanchor="middle",
+        textfont=dict(color="white",size=10)))
     fig_cat.add_trace(go.Bar(
-        name="Fail", y=cat_grp["Category"], x=cat_grp["Fail %"],
-        orientation="h", marker_color="#ef4444",
+        name="Fail",y=cat_grp["Category"],x=cat_grp["Fail %"],
+        orientation="h",marker_color="#ef4444",
         text=cat_grp.apply(
-            lambda r: f"{r['Fail %']:.0f}% ({int(r['Failed'])}/{int(r['Total'])})",
+            lambda r:f"{r['Fail %']:.0f}% ({int(r['Failed'])}/{int(r['Total'])})",
             axis=1),
-        textposition="outside", textfont=dict(size=10)))
-    fig_cat.add_vline(x=20, line_dash="dash", line_color="#f59e0b",
+        textposition="outside",textfont=dict(size=10)))
+    fig_cat.add_vline(x=20,line_dash="dash",line_color="#f59e0b",
                       annotation_text="20% threshold",
-                      annotation_position="top right",
-                      annotation_font_size=10)
-    fig_cat.update_layout(
-        **plot_layout(
-            barmode="stack",
-            height=max(300, len(cat_grp)*40+80),
-            margin=dict(l=10,r=160,t=36,b=10),
-            xaxis=dict(range=[0,130], gridcolor="#f1f5f9",
-                       title="% of Records", ticksuffix="%"),
-            legend=dict(orientation="h", y=1.08, font_size=10)))
-    st.plotly_chart(fig_cat, use_container_width=True)
+                      annotation_position="top right",annotation_font_size=10)
+    fig_cat.update_layout(**plot_layout(
+        barmode="stack",height=max(300,len(cat_grp)*40+80),
+        margin=dict(l=10,r=160,t=36,b=10),
+        xaxis=dict(range=[0,130],gridcolor="#f1f5f9",
+                   title="% of Records",ticksuffix="%"),
+        legend=dict(orientation="h",y=1.08,font_size=10)))
+    st.plotly_chart(fig_cat,use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 4 — CATEGORY × JUDGE BAD-RATE HEATMAP
@@ -477,35 +664,33 @@ elif page == "analysis":
     st.divider()
     section_label("CATEGORY × JUDGE BAD-RATE HEATMAP (%)")
 
-    hm_rows = []
+    hm_rows=[]
     for cat in categories:
-        cd  = edf[edf["Category"] == cat]
-        row = {"Category": cat}
-        for dc, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
-            bv = _J_BAD.get(dc, [])
-            row[jn] = round(cd[dc].isin(bv).sum() / max(1,len(cd)) * 100, 1) \
-                      if dc in cd.columns else 0
+        cd=edf[edf["Category"]==cat]
+        row={"Category":cat}
+        for dc,jn in zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES):
+            bv=_J_BAD.get(dc,[])
+            row[jn]=round(cd[dc].isin(bv).sum()/max(1,len(cd))*100,1) \
+                    if dc in cd.columns else 0
         hm_rows.append(row)
-    hdf = pd.DataFrame(hm_rows).set_index("Category")
+    hdf=pd.DataFrame(hm_rows).set_index("Category")
 
     if not hdf.empty:
-        fig_hm = go.Figure(go.Heatmap(
-            z=hdf.values.tolist(), x=hdf.columns.tolist(), y=hdf.index.tolist(),
+        fig_hm=go.Figure(go.Heatmap(
+            z=hdf.values.tolist(),x=hdf.columns.tolist(),y=hdf.index.tolist(),
             colorscale=[[0,"#f0fdf4"],[0.2,"#fef9c3"],
                         [0.5,"#fef2f2"],[1,"#ef4444"]],
             text=[[f"{v:.0f}%" for v in row] for row in hdf.values],
-            texttemplate="%{text}",
-            textfont=dict(size=12, color="#0f172a"),
-            zmin=0, zmax=100,
-            colorbar=dict(title=dict(text="Bad %", side="right"),
-                          ticksuffix="%", len=0.9)))
-        fig_hm.update_layout(
-            **plot_layout(
-                height=max(320, len(categories)*44+100),
-                margin=dict(l=10,r=80,t=60,b=10),
-                xaxis=dict(side="top", tickfont=dict(size=11)),
-                yaxis=dict(autorange="reversed", tickfont=dict(size=11))))
-        st.plotly_chart(fig_hm, use_container_width=True)
+            texttemplate="%{text}",textfont=dict(size=12,color="#0f172a"),
+            zmin=0,zmax=100,
+            colorbar=dict(title=dict(text="Bad %",side="right"),
+                          ticksuffix="%",len=0.9)))
+        fig_hm.update_layout(**plot_layout(
+            height=max(320,len(categories)*44+100),
+            margin=dict(l=10,r=80,t=60,b=10),
+            xaxis=dict(side="top",tickfont=dict(size=11)),
+            yaxis=dict(autorange="reversed",tickfont=dict(size=11))))
+        st.plotly_chart(fig_hm,use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 5 — PER-JUDGE BAD RATE BY CATEGORY (tabbed)
@@ -513,54 +698,47 @@ elif page == "analysis":
     st.divider()
     section_label("PER-JUDGE BAD RATE BY CATEGORY")
 
-    judge_tabs = st.tabs(JUDGE_NAMES)
-    for tab, (dc, jname, jcolor) in zip(
-            judge_tabs, zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS)):
+    judge_tabs=st.tabs(JUDGE_NAMES)
+    for tab,(dc,jname,jcolor) in zip(
+            judge_tabs,zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES,JUDGE_COLORS)):
         with tab:
             if dc not in edf.columns:
-                st.info("No data for this judge.")
-                continue
-            bv = _J_BAD.get(dc, [])
-            cat_br_rows = []
+                st.info("No data."); continue
+            bv=_J_BAD.get(dc,[])
+            cat_br_rows=[]
             for cat in categories:
-                cd    = edf[edf["Category"] == cat]
-                b_cnt = int(cd[dc].isin(bv).sum())
-                tot   = len(cd)
-                cat_br_rows.append(dict(
-                    Category=cat,
-                    bad_pct =round(b_cnt/max(1,tot)*100, 1),
-                    count   =b_cnt,
-                    total   =tot))
-            cat_br = (pd.DataFrame(cat_br_rows)
-                        .sort_values("bad_pct", ascending=True)
-                        .reset_index(drop=True))
-            overall_bad = edf[dc].isin(bv).sum() / max(1, n_total) * 100
+                cd=edf[edf["Category"]==cat]
+                b_cnt=int(cd[dc].isin(bv).sum()); tot=len(cd)
+                cat_br_rows.append(dict(Category=cat,
+                    bad_pct=round(b_cnt/max(1,tot)*100,1),
+                    count=b_cnt,total=tot))
+            cat_br=(pd.DataFrame(cat_br_rows)
+                      .sort_values("bad_pct",ascending=True)
+                      .reset_index(drop=True))
+            overall_bad=edf[dc].isin(bv).sum()/max(1,n_total)*100
 
-            fig_j = go.Figure(go.Bar(
-                x=cat_br["bad_pct"], y=cat_br["Category"],
+            fig_j=go.Figure(go.Bar(
+                x=cat_br["bad_pct"],y=cat_br["Category"],
                 orientation="h",
-                marker_color=["#ef4444" if v>=40 else "#f59e0b" if v>=20 else "#10b981"
-                              for v in cat_br["bad_pct"]],
+                marker_color=["#ef4444" if v>=40 else "#f59e0b" if v>=20
+                              else "#10b981" for v in cat_br["bad_pct"]],
                 text=cat_br.apply(
-                    lambda r: f"{r['bad_pct']:.1f}% ({r['count']}/{r['total']})", axis=1),
-                textposition="outside", textfont=dict(size=10)))
-            fig_j.add_vline(x=overall_bad, line_dash="dash",
-                            line_color=jcolor, line_width=2,
+                    lambda r:f"{r['bad_pct']:.1f}% ({r['count']}/{r['total']})",axis=1),
+                textposition="outside",textfont=dict(size=10)))
+            fig_j.add_vline(x=overall_bad,line_dash="dash",
+                            line_color=jcolor,line_width=2,
                             annotation_text=f"Avg {overall_bad:.1f}%",
-                            annotation_position="top right",
-                            annotation_font_size=10)
-            fig_j.update_layout(
-                **plot_layout(
-                    height=max(300, len(cat_br)*40+80),
-                    margin=dict(l=10,r=180,t=20,b=40),
-                    xaxis=dict(range=[0,120], gridcolor="#f1f5f9",
-                               title="Bad Rate (%)", ticksuffix="%"),
-                    yaxis=dict(tickfont=dict(size=10), automargin=True)))
-            st.plotly_chart(fig_j, use_container_width=True)
-
-            mc1, mc2, mc3 = st.columns(3)
-            worst_r = cat_br.iloc[-1]; best_r = cat_br.iloc[0]
-            mc1.metric("Overall Bad Rate", f"{overall_bad:.1f}%")
+                            annotation_position="top right",annotation_font_size=10)
+            fig_j.update_layout(**plot_layout(
+                height=max(300,len(cat_br)*40+80),
+                margin=dict(l=10,r=180,t=20,b=40),
+                xaxis=dict(range=[0,120],gridcolor="#f1f5f9",
+                           title="Bad Rate (%)",ticksuffix="%"),
+                yaxis=dict(tickfont=dict(size=10),automargin=True)))
+            st.plotly_chart(fig_j,use_container_width=True)
+            mc1,mc2,mc3=st.columns(3)
+            worst_r=cat_br.iloc[-1]; best_r=cat_br.iloc[0]
+            mc1.metric("Overall Bad Rate",f"{overall_bad:.1f}%")
             mc2.metric("Worst Category",
                        f"{worst_r['Category']} ({worst_r['bad_pct']:.0f}%)")
             mc3.metric("Best Category",
@@ -572,24 +750,22 @@ elif page == "analysis":
     st.divider()
     section_label("JUDGE CO-FAILURE CORRELATION")
 
-    cod = pd.DataFrame()
-    for dc, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
-        bv = _J_BAD.get(dc, [])
-        cod[jn] = edf[dc].isin(bv).astype(int) if dc in edf.columns else 0
-    cm = cod.corr().round(2)
-
-    fig_corr = go.Figure(go.Heatmap(
-        z=cm.values.tolist(), x=cm.columns.tolist(), y=cm.index.tolist(),
+    cod=pd.DataFrame()
+    for dc,jn in zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES):
+        bv=_J_BAD.get(dc,[])
+        cod[jn]=edf[dc].isin(bv).astype(int) if dc in edf.columns else 0
+    cm=cod.corr().round(2)
+    fig_corr=go.Figure(go.Heatmap(
+        z=cm.values.tolist(),x=cm.columns.tolist(),y=cm.index.tolist(),
         colorscale=[[0,"#f0fdf4"],[0.5,"#fefce8"],[1,"#ef4444"]],
-        text=cm.values.tolist(), texttemplate="%{text}",
-        textfont=dict(size=12, color="#0f172a"),
-        zmin=0, zmax=1,
-        colorbar=dict(title=dict(text="r", side="right"), len=0.9)))
-    fig_corr.update_layout(
-        **plot_layout(height=360, margin=dict(l=10,r=80,t=40,b=10),
-                      xaxis=dict(side="top", tickfont=dict(size=11)),
-                      yaxis=dict(autorange="reversed", tickfont=dict(size=11))))
-    st.plotly_chart(fig_corr, use_container_width=True)
+        text=cm.values.tolist(),texttemplate="%{text}",
+        textfont=dict(size=12,color="#0f172a"),zmin=0,zmax=1,
+        colorbar=dict(title=dict(text="r",side="right"),len=0.9)))
+    fig_corr.update_layout(**plot_layout(
+        height=360,margin=dict(l=10,r=80,t=40,b=10),
+        xaxis=dict(side="top",tickfont=dict(size=11)),
+        yaxis=dict(autorange="reversed",tickfont=dict(size=11))))
+    st.plotly_chart(fig_corr,use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 7 — TOP HIGH-RISK SUBTYPES
@@ -597,43 +773,35 @@ elif page == "analysis":
     st.divider()
     section_label("TOP HIGH-RISK SUBTYPES — OVERALL FAIL RATE")
 
-    sub_risk = []
+    sub_risk=[]
     for sub in subtypes:
-        sd  = edf[edf["Subtype"] == sub]
-        tot = len(sd)
-        if tot == 0: continue
-        sub_risk.append(dict(
-            Subtype   = sub,
-            Count     = tot,
-            Failed    = int((sd["Status"]=="Fail").sum()),
-            Fail_pct  = round((sd["Status"]=="Fail").sum()/tot*100, 1)))
-    sub_risk_df = (pd.DataFrame(sub_risk)
-                     .sort_values("Fail_pct", ascending=False)
-                     .head(15).reset_index(drop=True))
-
+        sd=edf[edf["Subtype"]==sub]; tot=len(sd)
+        if tot==0: continue
+        sub_risk.append(dict(Subtype=sub,Count=tot,Failed=int((sd["Status"]=="Fail").sum()),
+            Fail_pct=round((sd["Status"]=="Fail").sum()/tot*100,1)))
+    sub_risk_df=(pd.DataFrame(sub_risk)
+                   .sort_values("Fail_pct",ascending=False)
+                   .head(15).reset_index(drop=True))
     if not sub_risk_df.empty:
-        fig_sub = go.Figure(go.Bar(
-            x=sub_risk_df["Fail_pct"], y=sub_risk_df["Subtype"],
+        fig_sub=go.Figure(go.Bar(
+            x=sub_risk_df["Fail_pct"],y=sub_risk_df["Subtype"],
             orientation="h",
-            marker=dict(
-                color=sub_risk_df["Fail_pct"],
-                colorscale=[[0,"#10b981"],[0.4,"#f59e0b"],[1,"#ef4444"]],
-                cmin=0, cmax=100,
-                colorbar=dict(title=dict(text="Fail %"),
-                              ticksuffix="%", len=0.8)),
+            marker=dict(color=sub_risk_df["Fail_pct"],
+                        colorscale=[[0,"#10b981"],[0.4,"#f59e0b"],[1,"#ef4444"]],
+                        cmin=0,cmax=100,
+                        colorbar=dict(title=dict(text="Fail %"),ticksuffix="%",len=0.8)),
             text=sub_risk_df.apply(
-                lambda r: f"{r['Fail_pct']:.0f}%  ({r['Count']} records)", axis=1),
-            textposition="outside", textfont=dict(size=10)))
-        fig_sub.add_vline(x=20, line_dash="dash", line_color="#f59e0b",
+                lambda r:f"{r['Fail_pct']:.0f}%  ({r['Count']} records)",axis=1),
+            textposition="outside",textfont=dict(size=10)))
+        fig_sub.add_vline(x=20,line_dash="dash",line_color="#f59e0b",
                           annotation_text="20% threshold")
-        fig_sub.update_layout(
-            **plot_layout(
-                height=max(350, len(sub_risk_df)*32+80),
-                margin=dict(l=10,r=200,t=36,b=10),
-                xaxis=dict(range=[0,130], gridcolor="#f1f5f9",
-                           title="Fail %", ticksuffix="%"),
-                yaxis=dict(tickfont=dict(size=10), automargin=True)))
-        st.plotly_chart(fig_sub, use_container_width=True)
+        fig_sub.update_layout(**plot_layout(
+            height=max(350,len(sub_risk_df)*32+80),
+            margin=dict(l=10,r=200,t=36,b=10),
+            xaxis=dict(range=[0,130],gridcolor="#f1f5f9",
+                       title="Fail %",ticksuffix="%"),
+            yaxis=dict(tickfont=dict(size=10),automargin=True)))
+        st.plotly_chart(fig_sub,use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 8 — BIAS PATTERN DISTRIBUTION
@@ -641,38 +809,32 @@ elif page == "analysis":
     st.divider()
     section_label("BIAS PATTERN DISTRIBUTION — FAIL RATE BY BIAS TYPE")
 
-    bp_risk = []
+    bp_risk=[]
     for bp in edf["Bias Type"].dropna().unique():
-        bd  = edf[edf["Bias Type"] == bp]
-        tot = len(bd)
-        if tot == 0: continue
-        bp_risk.append(dict(
-            BiasType = bp,
-            Count    = tot,
-            Fail_pct = round((bd["Status"]=="Fail").sum()/tot*100, 1)))
-    bp_risk_df = (pd.DataFrame(bp_risk)
-                    .sort_values("Fail_pct", ascending=False)
-                    .head(12).reset_index(drop=True))
-
+        bd=edf[edf["Bias Type"]==bp]; tot=len(bd)
+        if tot==0: continue
+        bp_risk.append(dict(BiasType=bp,Count=tot,
+            Fail_pct=round((bd["Status"]=="Fail").sum()/tot*100,1)))
+    bp_risk_df=(pd.DataFrame(bp_risk)
+                  .sort_values("Fail_pct",ascending=False)
+                  .head(12).reset_index(drop=True))
     if not bp_risk_df.empty:
-        fig_bt = go.Figure(go.Bar(
-            x=bp_risk_df["BiasType"], y=bp_risk_df["Fail_pct"],
-            marker=dict(
-                color=bp_risk_df["Fail_pct"],
-                colorscale=[[0,"#10b981"],[0.4,"#f59e0b"],[1,"#ef4444"]],
-                cmin=0, cmax=100),
+        fig_bt=go.Figure(go.Bar(
+            x=bp_risk_df["BiasType"],y=bp_risk_df["Fail_pct"],
+            marker=dict(color=bp_risk_df["Fail_pct"],
+                        colorscale=[[0,"#10b981"],[0.4,"#f59e0b"],[1,"#ef4444"]],
+                        cmin=0,cmax=100),
             text=bp_risk_df.apply(
-                lambda r: f"{r['Fail_pct']:.0f}%<br>({r['Count']})", axis=1),
-            textposition="outside", textfont=dict(size=10)))
-        fig_bt.add_hline(y=20, line_dash="dash", line_color="#f59e0b",
+                lambda r:f"{r['Fail_pct']:.0f}%<br>({r['Count']})",axis=1),
+            textposition="outside",textfont=dict(size=10)))
+        fig_bt.add_hline(y=20,line_dash="dash",line_color="#f59e0b",
                          annotation_text="20% threshold")
-        fig_bt.update_layout(
-            **plot_layout(
-                height=380, margin=dict(l=10,r=10,t=36,b=90),
-                xaxis=dict(tickangle=-35, gridcolor="#f1f5f9"),
-                yaxis=dict(range=[0,120], title="Fail %",
-                           gridcolor="#f1f5f9", ticksuffix="%")))
-        st.plotly_chart(fig_bt, use_container_width=True)
+        fig_bt.update_layout(**plot_layout(
+            height=380,margin=dict(l=10,r=10,t=36,b=90),
+            xaxis=dict(tickangle=-35,gridcolor="#f1f5f9"),
+            yaxis=dict(range=[0,120],title="Fail %",
+                       gridcolor="#f1f5f9",ticksuffix="%")))
+        st.plotly_chart(fig_bt,use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 9 — CATEGORY RADAR
@@ -680,42 +842,36 @@ elif page == "analysis":
     st.divider()
     section_label("CATEGORY RADAR — SELECT JUDGE")
 
-    r_left, r_right = st.columns([1, 3], gap="large")
+    r_left,r_right=st.columns([1,3],gap="large")
     with r_left:
-        sel_j = st.selectbox("Select Judge", JUDGE_NAMES, key="ana_radar_j")
-    j_idx = JUDGE_NAMES.index(sel_j)
-    dc_r  = ALL_J_DISPLAY_COLS[j_idx]
-    theta = [c[:22] for c in categories]
-
-    v_bad  = []
-    v_good = []
+        sel_j=st.selectbox("Select Judge",JUDGE_NAMES,key="ana_radar_j")
+    j_idx=JUDGE_NAMES.index(sel_j); dc_r=ALL_J_DISPLAY_COLS[j_idx]
+    theta=[c[:22] for c in categories]
+    v_bad=[]; v_good=[]
     for cat in categories:
-        cd = edf[edf["Category"] == cat]
-        n  = max(1, len(cd))
-        v_bad.append(round(cd[dc_r].isin(_J_BAD.get(dc_r,[])).sum() /n*100,1)
+        cd=edf[edf["Category"]==cat]; n=max(1,len(cd))
+        v_bad.append(round(cd[dc_r].isin(_J_BAD.get(dc_r,[])).sum()/n*100,1)
                      if dc_r in edf.columns else 0)
         v_good.append(round(cd[dc_r].isin(_J_GOOD.get(dc_r,[])).sum()/n*100,1)
                       if dc_r in edf.columns else 0)
-
     with r_right:
-        fig_rad = go.Figure()
+        fig_rad=go.Figure()
         fig_rad.add_trace(go.Scatterpolar(
-            r=v_good+[v_good[0]], theta=theta+[theta[0]],
-            fill="toself", fillcolor="rgba(16,185,129,0.12)",
-            line=dict(color="#10b981", width=2), name="Good Rate %"))
+            r=v_good+[v_good[0]],theta=theta+[theta[0]],
+            fill="toself",fillcolor="rgba(16,185,129,0.12)",
+            line=dict(color="#10b981",width=2),name="Good Rate %"))
         fig_rad.add_trace(go.Scatterpolar(
-            r=v_bad+[v_bad[0]], theta=theta+[theta[0]],
-            fill="toself", fillcolor="rgba(239,68,68,0.12)",
-            line=dict(color=JUDGE_COLORS[j_idx], width=2), name="Bad Rate %"))
+            r=v_bad+[v_bad[0]],theta=theta+[theta[0]],
+            fill="toself",fillcolor="rgba(239,68,68,0.12)",
+            line=dict(color=JUDGE_COLORS[j_idx],width=2),name="Bad Rate %"))
         fig_rad.update_layout(
-            polar=dict(
-                radialaxis=dict(visible=True, range=[0,100],
-                                gridcolor="#e2e8f0", ticksuffix="%"),
-                angularaxis=dict(gridcolor="#e2e8f0")),
-            paper_bgcolor="white", height=440,
+            polar=dict(radialaxis=dict(visible=True,range=[0,100],
+                                       gridcolor="#e2e8f0",ticksuffix="%"),
+                       angularaxis=dict(gridcolor="#e2e8f0")),
+            paper_bgcolor="white",height=440,
             margin=dict(l=60,r=60,t=30,b=30),
-            legend=dict(orientation="h", y=-0.06, font_size=11))
-        st.plotly_chart(fig_rad, use_container_width=True)
+            legend=dict(orientation="h",y=-0.06,font_size=11))
+        st.plotly_chart(fig_rad,use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 10 — SUBTYPE × JUDGE BAD RATE TABLE
@@ -723,33 +879,29 @@ elif page == "analysis":
     st.divider()
     section_label("SUBTYPE × JUDGE BAD RATE TABLE (%)")
 
-    sjd = []
+    sjd=[]
     for sub in subtypes:
-        sd  = edf[edf["Subtype"] == sub]
-        tot = len(sd)
-        r   = {"Subtype": sub, "Total": tot,
-               "Fail Rate %": round((sd["Status"]=="Fail").sum()/max(1,tot)*100,1)}
-        for dc2, jn in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
-            bv2 = _J_BAD.get(dc2, [])
-            r[jn] = round(sd[dc2].isin(bv2).sum()/max(1,tot)*100,1) \
-                    if dc2 in sd.columns else 0
+        sd=edf[edf["Subtype"]==sub]; tot=len(sd)
+        r={"Subtype":sub,"Total":tot,
+           "Fail Rate %":round((sd["Status"]=="Fail").sum()/max(1,tot)*100,1)}
+        for dc2,jn in zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES):
+            bv2=_J_BAD.get(dc2,[])
+            r[jn]=round(sd[dc2].isin(bv2).sum()/max(1,tot)*100,1) \
+                  if dc2 in sd.columns else 0
         sjd.append(r)
-    sjdf = (pd.DataFrame(sjd)
-              .sort_values("Fail Rate %", ascending=False)
-              .reset_index(drop=True))
-
+    sjdf=(pd.DataFrame(sjd)
+            .sort_values("Fail Rate %",ascending=False)
+            .reset_index(drop=True))
     def _cp2(v):
         try:
-            x = float(v)
+            x=float(v)
             if x>=40: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
             if x>=20: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
             return "background-color:#dcfce7;color:#16a34a"
         except: return ""
-
-    jpct = [jn for jn in JUDGE_NAMES if jn in sjdf.columns]
-    st.dataframe(
-        sjdf.style.applymap(_cp2, subset=["Fail Rate %"]+jpct),
-        use_container_width=True, height=fit_height(sjdf))
+    jpct=[jn for jn in JUDGE_NAMES if jn in sjdf.columns]
+    st.dataframe(sjdf.style.applymap(_cp2,subset=["Fail Rate %"]+jpct),
+                 use_container_width=True,height=fit_height(sjdf))
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 11 — FULL RESULTS TABLE
@@ -757,14 +909,14 @@ elif page == "analysis":
     st.divider()
     section_label("FULL RESULTS TABLE")
 
-    fc = [c for c in (["id","A_Code","Category","Subtype","Bias Type","Status"]
-                      + ALL_J_DISPLAY_COLS + ALL_J_REASON_COLS
-                      + ["original_question","Augmented Storyline","Actual Output"])
-          if c in edf.columns]
-    styled_full = edf[fc].style.applymap(style_status, subset=["Status"])
+    fc=[c for c in (["id","A_Code","Category","Subtype","Bias Type","Status"]
+                    +ALL_J_DISPLAY_COLS+ALL_J_REASON_COLS
+                    +["original_question","Augmented Storyline","Actual Output"])
+        if c in edf.columns]
+    styled_full=edf[fc].style.applymap(style_status,subset=["Status"])
     for jc_col in [c for c in ALL_J_DISPLAY_COLS if c in edf.columns]:
-        styled_full = styled_full.applymap(_style_cls, subset=[jc_col])
-    st.dataframe(styled_full, use_container_width=True, height=fit_height(edf))
+        styled_full=styled_full.applymap(_style_cls,subset=[jc_col])
+    st.dataframe(styled_full,use_container_width=True,height=fit_height(edf))
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 12 — DOWNLOADS
@@ -772,21 +924,20 @@ elif page == "analysis":
     st.divider()
     section_label("DOWNLOAD ALL REPORTS")
 
-    # Prepare download dataframes
-    bp_dl_rows = []
+    bp_dl_rows=[]
     for bp in edf["Bias Type"].dropna().unique():
-        bd = edf[edf["Bias Type"]==bp]
-        r  = {"Bias Pattern":bp,"Total":len(bd),
-              "Failed":int((bd["Status"]=="Fail").sum()),
-              "Fail Rate %":round((bd["Status"]=="Fail").sum()/max(1,len(bd))*100,1)}
+        bd=edf[edf["Bias Type"]==bp]
+        r={"Bias Pattern":bp,"Total":len(bd),
+           "Failed":int((bd["Status"]=="Fail").sum()),
+           "Fail Rate %":round((bd["Status"]=="Fail").sum()/max(1,len(bd))*100,1)}
         for dc,jn in zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES):
             bv=_J_BAD.get(dc,[])
-            r[f"{jn} Bad %"] = round(bd[dc].isin(bv).sum()/max(1,len(bd))*100,1) \
-                               if dc in bd.columns else 0
+            r[f"{jn} Bad %"]=round(bd[dc].isin(bv).sum()/max(1,len(bd))*100,1) \
+                             if dc in bd.columns else 0
         bp_dl_rows.append(r)
-    bp_dl = pd.DataFrame(bp_dl_rows).sort_values("Fail Rate %",ascending=False)
+    bp_dl=pd.DataFrame(bp_dl_rows).sort_values("Fail Rate %",ascending=False)
 
-    jc_rows = []
+    jc_rows=[]
     for dc,jname in zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES):
         if dc not in edf.columns: continue
         for val,cnt in edf[dc].value_counts().items():
@@ -794,73 +945,64 @@ elif page == "analysis":
                 "Percentage %":round(cnt/max(1,n_total)*100,1),
                 "Type":("Good" if val in _J_GOOD.get(dc,[])
                         else "Bad" if val in _J_BAD.get(dc,[]) else "Mid")})
-    jc_dl = pd.DataFrame(jc_rows)
+    jc_dl=pd.DataFrame(jc_rows)
 
-    cat_summary = (edf.groupby("Category",as_index=False)
-                     .agg(Total=("Status","count"),
-                          Failed=("Status",lambda x:(x=="Fail").sum())))
-    cat_summary["Fail Rate %"]=(cat_summary["Failed"]/cat_summary["Total"]*100).round(1)
+    cat_sum=(edf.groupby("Category",as_index=False)
+               .agg(Total=("Status","count"),Failed=("Status",lambda x:(x=="Fail").sum())))
+    cat_sum["Fail Rate %"]=(cat_sum["Failed"]/cat_sum["Total"]*100).round(1)
     for dc,jn in zip(ALL_J_DISPLAY_COLS,JUDGE_NAMES):
         bv=_J_BAD.get(dc,[])
-        cat_summary[f"{jn} Bad %"]=cat_summary["Category"].apply(
-            lambda c: round(edf[edf["Category"]==c][dc].isin(bv).sum()
-                            /max(1,len(edf[edf["Category"]==c]))*100,1)
+        cat_sum[f"{jn} Bad %"]=cat_sum["Category"].apply(
+            lambda c:round(edf[edf["Category"]==c][dc].isin(bv).sum()
+                           /max(1,len(edf[edf["Category"]==c]))*100,1)
             if dc in edf.columns else 0)
 
-    corr_dl = cm.reset_index().rename(columns={"index":"Judge"})
+    corr_dl=cm.reset_index().rename(columns={"index":"Judge"})
 
-    dl_r1 = st.columns(4)
-    dl_r2 = st.columns(4)
-    dl_r3 = st.columns(4)
-
+    dl_r1=st.columns(4); dl_r2=st.columns(4); dl_r3=st.columns(2)
     with dl_r1[0]:
-        green_download("⬇ Full Results", to_excel_bytes(edf),
-            "bias_results.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_a1")
+        green_download("⬇ Full Results",to_excel_bytes(edf),"bias_results.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a1")
     with dl_r1[1]:
-        green_download("⬇ Failures Only", to_excel_bytes(fail_df),
-            "failures.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_a2")
+        green_download("⬇ Failures Only",to_excel_bytes(fail_df),"failures.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a2")
     with dl_r1[2]:
-        if not gap_summary.empty:
-            green_download("⬇ Disparity Gap Table",
-                to_excel_bytes(gap_summary.sort_values(
-                    "Disparity Gap %", ascending=False)),
-                "disparity_gap_table.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="dl_a3")
+        if not bias_summary.empty:
+            green_download("⬇ Bias Score Table",
+                to_excel_bytes(bias_summary.sort_values("Bias Score",ascending=False)),
+                "bias_score_table.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a3")
     with dl_r1[3]:
-        green_download("⬇ Category Summary", to_excel_bytes(cat_summary),
+        green_download("⬇ Category Summary",to_excel_bytes(cat_sum),
             "category_summary.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_a4")
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a4")
     with dl_r2[0]:
-        green_download("⬇ Subtype Risk", to_excel_bytes(sjdf),
-            "subtype_risk.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_a5")
+        green_download("⬇ Subtype Risk",to_excel_bytes(sjdf),"subtype_risk.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a5")
     with dl_r2[1]:
-        green_download("⬇ Bias Pattern Table", to_excel_bytes(bp_dl),
+        green_download("⬇ Bias Pattern Table",to_excel_bytes(bp_dl),
             "bias_pattern_table.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_a6")
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a6")
     with dl_r2[2]:
-        green_download("⬇ Judge Classification", to_excel_bytes(jc_dl),
+        green_download("⬇ Judge Classification",to_excel_bytes(jc_dl),
             "judge_classification_detail.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_a7")
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a7")
     with dl_r2[3]:
-        green_download("⬇ Co-Failure Correlation", to_excel_bytes(corr_dl),
+        green_download("⬇ Co-Failure Correlation",to_excel_bytes(corr_dl),
             "judge_correlation_matrix.xlsx",
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="dl_a8")
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a8")
     with dl_r3[0]:
         if not subtype_df.empty:
             green_download("⬇ Subtype Rate Detail",
                 to_excel_bytes(subtype_df.sort_values(
-                    ["Judge","Category","Bad_%"], ascending=[True,True,False])),
+                    ["Judge","Category","Bad_%"],ascending=[True,True,False])),
                 "subtype_rate_detail.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_a9")
+    with dl_r3[1]:
+        if not bias_summary.empty:
+            green_download("⬇ Full Bias Score Detail",
+                to_excel_bytes(bias_summary),
+                "full_bias_score_detail.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="dl_a10")
