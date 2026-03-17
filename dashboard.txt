@@ -812,10 +812,13 @@ elif page == "augment":
                 for i in fq_idx: st.session_state[f"_q_{i}"] = False
 
         st.caption(f"{len(st.session_state.sel_questions)} / {len(questions)} selected")
-        with st.container(height=320, border=True):
+        with st.container(height=360, border=True):
+            # Select All inside the box — rendered ONCE only
             st.checkbox(f"Select All Questions ({len(fq_idx)})",
                         value=all_fq_sel, key="_master_q", on_change=on_master_q)
-            st.markdown('<hr style="margin:4px 0;border:none;border-top:1px solid #e2e8f0">', unsafe_allow_html=True)
+            st.markdown(
+                '<hr style="margin:4px 0 6px 0;border:none;border-top:1px solid #e2e8f0">',
+                unsafe_allow_html=True)
             for i, q in filtered_q:
                 def on_q(idx=i):
                     if st.session_state[f"_q_{idx}"]:
@@ -896,6 +899,7 @@ elif page == "augment":
             if not ont_map:
                 st.info("No ontology loaded.")
             else:
+                for cat in filtered_cats.keys():   # preserves ontology order
                 for cat in filtered_cats.keys():   # preserves ontology order
                     items        = filtered_cats[cat]
                     codes_in_cat = [c for c, _ in items]
