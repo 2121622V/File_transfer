@@ -1,0 +1,547 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# LLM  ── replace the existing call_llm function entirely
+# ═══════════════════════════════════════════════════════════════════════════════
+async def call_llm(prompt, system=None, json_mode=True):
+    """
+    Call Azure OpenAI.  Returns parsed dict (json_mode=True) or str (False).
+    On ANY error returns {} / "" and stores the error message in session state
+    so the UI can surface it.
+    """
+    client = AsyncAzureOpenAI(
+        api_key       = st.session_state.azure_key,
+        api_version   = st.session_state.azure_version,
+        azure_endpoint= st.session_state.azure_endpoint,
+    )
+    msgs = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": prompt})
+
+    try:
+        kwargs = {}
+        if json_mode:
+            kwargs["response_format"] = {"type": "json_object"}
+
+        resp = await client.chat.completions.create(
+            model       = st.session_state.azure_deploy,
+            messages    = msgs,
+            max_tokens  = 4000,          # ← was max_completion_tokens (o-series only)
+            **kwargs
+        )
+        raw = resp.choices[0].message.content or ""
+
+        if not json_mode:
+            return raw
+
+        # Strip accidental markdown fences before parsing
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = "\n".join(cleaned.split("\n")[1:])
+        if cleaned.endswith("```"):
+            cleaned = "\n".join(cleaned.split("\n")[:-1])
+        cleaned = cleaned.strip()
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as je:
+            err = f"JSON parse error: {je} | Raw (first 300 chars): {cleaned[:300]}"
+            print("LLM JSON ERROR:", err)
+            st.session_state["_llm_last_error"] = err
+            return {}
+
+    except Exception as e:
+        err = f"{type(e).__name__}: {e}"
+        print("LLM CALL ERROR:", err)
+        st.session_state["_llm_last_error"] = err
+        return {} if json_mode else ""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PAGE: LLM INSIGHTS  ── replace the existing elif page == "insights": block
+# ═══════════════════════════════════════════════════════════════════════════════
+elif page == "insights":
+    page_header(
+        "💡 LLM Insights",
+        "AI-generated root cause analysis and governance recommendations "
+        "powered by your prompts.yaml.")
+
+    if st.session_state.eval_df is None:
+        st.warning("⬅ Complete the Evaluation step first.")
+        st.stop()
+
+    edf     = st.session_state.eval_df
+    prompts = st.session_state.prompts or {}
+    gov     = st.session_state.governance_report
+
+    # ── KPI strip ─────────────────────────────────────────────────────────────
+    s1, s2, s3, s4 = st.columns(4)
+    s1.metric("Total Records",     len(edf))
+    s2.metric("Categories",        edf["Category"].nunique())
+    s3.metric("Failed Records",    int((edf["Status"] == "Fail").sum()))
+    s4.metric("Overall Fail Rate", f"{(edf['Status']=='Fail').sum()/max(1,len(edf))*100:.1f}%")
+
+    # ── Show last LLM error if any ─────────────────────────────────────────────
+    last_err = st.session_state.get("_llm_last_error", "")
+    if last_err:
+        with st.expander("⚠️ Last LLM error (click to inspect)", expanded=False):
+            st.code(last_err, language="text")
+
+    # ── Prompt availability check ──────────────────────────────────────────────
+    RC_KEY  = "root_cause_analysis"
+    GOV_KEY = "governance_recommendations"
+    has_rc  = RC_KEY  in prompts and bool(str(prompts.get(RC_KEY,  "")).strip())
+    has_gov = GOV_KEY in prompts and bool(str(prompts.get(GOV_KEY, "")).strip())
+
+    if not has_rc or not has_gov:
+        missing = []
+        if not has_rc:  missing.append(f"`{RC_KEY}`")
+        if not has_gov: missing.append(f"`{GOV_KEY}`")
+        st.error(
+            f"❌ Missing prompt key(s) in prompts.yaml: {', '.join(missing)}. "
+            "Please re-upload the correct prompts file from the Upload page.")
+
+    creds_ok = all([
+        st.session_state.azure_key,
+        st.session_state.azure_endpoint,
+        st.session_state.azure_deploy,
+    ])
+    if not creds_ok:
+        st.error("❌ Azure OpenAI credentials are not configured. "
+                 "Set AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, "
+                 "and AZURE_OPENAI_DEPLOYMENT in your .env file.")
+
+    st.divider()
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Metrics summary builder
+    # Produces the JSON list that {{metrics_summary}} receives in both prompts.
+    # Field names match the few-shot examples in your prompts.yaml exactly:
+    #   "Decision Flip"        → Demographic Parity  bad rate  (judge 1)
+    #   "Fairness Degradation" → Equalized Odds       bad rate  (judge 2)
+    #   "Safety_Drift"         → Refusal Engagement   bad rate  (judge 3)
+    #   "Tone Inequality"      → Tone Parity          bad rate  (judge 4)
+    #   "Stereotype Injection" → Stereotype Score     bad rate  (judge 5)
+    # ══════════════════════════════════════════════════════════════════════════
+    def build_full_metrics_summary(df: pd.DataFrame) -> list:
+        # Map: legacy prompt field name → (ALL_J_DISPLAY_COLS index, JUDGE_NAMES index)
+        LEGACY_METRIC_MAP = {
+            "Decision Flip":        0,   # Demographic Parity
+            "Fairness Degradation": 1,   # Equalized Odds
+            "Safety_Drift":         2,   # Refusal Engagement
+            "Tone Inequality":      3,   # Tone Parity
+            "Stereotype Injection": 4,   # Stereotype Score
+        }
+
+        rows = []
+        for cat in sorted(df["Category"].dropna().unique()):
+            cd    = df[df["Category"] == cat]
+            total = len(cd)
+            fails = int((cd["Status"] == "Fail").sum())
+
+            row = {
+                "Category":         cat,
+                "total_count":      total,
+                "fail_count":       fails,
+                "failure_rate_pct": round(fails / max(1, total) * 100, 1),
+            }
+
+            # Per-judge rates using the LEGACY field names your prompt expects
+            for legacy_name, j_idx in LEGACY_METRIC_MAP.items():
+                dc  = ALL_J_DISPLAY_COLS[j_idx]    # e.g. "Demographic Parity"
+                bv  = _J_BAD.get(dc,  [])
+                gv  = _J_GOOD.get(dc, [])
+                mv  = _J_MID.get(dc,  [])
+                if dc not in cd.columns:
+                    row[legacy_name]                          = 0.0
+                    row[f"{legacy_name}_good_rate"]           = 0.0
+                    row[f"{legacy_name}_mid_rate"]            = 0.0
+                else:
+                    row[legacy_name]                          = round(cd[dc].isin(bv).sum() / max(1, total), 3)
+                    row[f"{legacy_name}_good_rate"]           = round(cd[dc].isin(gv).sum() / max(1, total), 3)
+                    row[f"{legacy_name}_mid_rate"]            = round(cd[dc].isin(mv).sum() / max(1, total), 3)
+
+            rows.append(row)
+        return rows
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Async helpers — defined at module scope equivalent inside this block
+    # using run_async which already exists at module level
+    # ══════════════════════════════════════════════════════════════════════════
+    def _do_root_causes(prompts_dict: dict, ms: list) -> dict:
+        """Synchronous wrapper: fills {{metrics_summary}} and calls LLM."""
+        template = prompts_dict.get(RC_KEY, "")
+        if not template:
+            return {"root_causes": []}
+        filled = str(template).replace(
+            "{{metrics_summary}}", json.dumps(ms, indent=2, ensure_ascii=False))
+
+        async def _call():
+            return await call_llm(filled, system=None, json_mode=True)
+
+        result = run_async(_call())
+        # Validate shape
+        if isinstance(result, dict) and "root_causes" in result:
+            return result
+        # LLM might wrap in a different key — try to recover
+        if isinstance(result, dict):
+            for v in result.values():
+                if isinstance(v, list):
+                    return {"root_causes": v}
+        return {"root_causes": []}
+
+    def _do_governance(prompts_dict: dict, root_causes: list, ms: list) -> dict:
+        """Synchronous wrapper: fills {{root_causes}} and {{metrics_summary}}."""
+        template = prompts_dict.get(GOV_KEY, "")
+        if not template:
+            return {"recommendations": []}
+        filled = (str(template)
+                  .replace("{{root_causes}}",
+                           json.dumps(root_causes, indent=2, ensure_ascii=False))
+                  .replace("{{metrics_summary}}",
+                           json.dumps(ms, indent=2, ensure_ascii=False)))
+
+        async def _call():
+            return await call_llm(filled, system=None, json_mode=True)
+
+        result = run_async(_call())
+        if isinstance(result, dict) and "recommendations" in result:
+            return result
+        if isinstance(result, dict):
+            for v in result.values():
+                if isinstance(v, list):
+                    return {"recommendations": v}
+        return {"recommendations": []}
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Generation control cards
+    # ══════════════════════════════════════════════════════════════════════════
+    col_rc, col_gov = st.columns(2, gap="large")
+
+    with col_rc:
+        rc_done = gov is not None and bool(gov.get("root_causes"))
+        st.markdown(
+            f'<div style="background:white;border:1px solid {"#bbf7d0" if rc_done else "#e2e8f0"};'
+            f'border-radius:12px;padding:18px 20px;'
+            f'border-left:4px solid {"#16a34a" if rc_done else "#6366f1"};'
+            f'margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
+            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
+            f'🔍 Root Cause Analysis</div>'
+            f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
+            f'Invokes the <code>root_cause_analysis</code> prompt from prompts.yaml, '
+            f'injecting the full per-category metrics summary (all 5 judges). '
+            f'Returns systemic root causes with metric evidence and framework references.</div>'
+            + (f'<div style="margin-top:8px">'
+               f'<span style="background:#f0fdf4;color:#16a34a;padding:2px 10px;'
+               f'border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0">'
+               f'✓ {len(gov["root_causes"])} root causes generated</span></div>'
+               if rc_done else "")
+            + '</div>',
+            unsafe_allow_html=True)
+
+        btn_rc_label = "🔄 Regenerate Root Causes" if rc_done else "🔍 Generate Root Cause Analysis"
+        if st.button(btn_rc_label, type="primary", key="btn_rc",
+                     use_container_width=True, disabled=(not has_rc or not creds_ok)):
+            # Clear previous error
+            st.session_state["_llm_last_error"] = ""
+            with st.spinner("Building metrics summary and calling LLM…"):
+                ms     = build_full_metrics_summary(edf)
+                result = _do_root_causes(prompts, ms)
+
+            rc_list = result.get("root_causes", [])
+            if rc_list:
+                existing_recs = gov.get("recommendations", []) if gov else []
+                st.session_state.governance_report = {
+                    "root_causes":      rc_list,
+                    "recommendations":  existing_recs,
+                    "generated_at":     __import__("datetime").datetime.now()
+                                        .strftime("%Y-%m-%d %H:%M:%S"),
+                    "gov_generated_at": gov.get("gov_generated_at", "") if gov else "",
+                }
+                st.success(f"✅ {len(rc_list)} root causes generated.")
+                st.rerun()
+            else:
+                err = st.session_state.get("_llm_last_error", "Unknown error")
+                st.error(
+                    f"❌ LLM returned no root causes.\n\n"
+                    f"**Error:** {err}\n\n"
+                    f"Check: (1) Azure credentials, (2) prompt key `{RC_KEY}` "
+                    f"exists in prompts.yaml, (3) model deployment name is correct.")
+
+    with col_gov:
+        gov_done = gov is not None and bool(gov.get("recommendations"))
+        st.markdown(
+            f'<div style="background:white;border:1px solid {"#bbf7d0" if gov_done else "#e2e8f0"};'
+            f'border-radius:12px;padding:18px 20px;'
+            f'border-left:4px solid {"#16a34a" if gov_done else "#f59e0b"};'
+            f'margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
+            f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
+            f'📋 Governance Recommendations</div>'
+            f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
+            f'Invokes the <code>governance_recommendations</code> prompt from prompts.yaml, '
+            f'injecting root causes + full metrics summary. Generates 5 prioritised '
+            f'recommendations with framework citations.</div>'
+            + (f'<div style="margin-top:8px">'
+               f'<span style="background:#f0fdf4;color:#16a34a;padding:2px 10px;'
+               f'border-radius:20px;font-size:10px;font-weight:700;border:1px solid #bbf7d0">'
+               f'✓ {len(gov["recommendations"])} recommendations generated</span></div>'
+               if gov_done else "")
+            + '</div>',
+            unsafe_allow_html=True)
+
+        btn_gov_label = ("🔄 Regenerate Recommendations" if gov_done
+                         else "📋 Generate Governance Recommendations")
+        if st.button(btn_gov_label, type="primary", key="btn_gov",
+                     use_container_width=True, disabled=(not has_gov or not creds_ok)):
+            st.session_state["_llm_last_error"] = ""
+            with st.spinner("Building metrics summary…"):
+                ms = build_full_metrics_summary(edf)
+
+            # Auto-generate root causes first if they don't exist
+            existing_rc = gov.get("root_causes", []) if gov else []
+            if not existing_rc:
+                with st.spinner("Root causes not found — generating them first…"):
+                    rc_result   = _do_root_causes(prompts, ms)
+                    existing_rc = rc_result.get("root_causes", [])
+                if not existing_rc:
+                    err = st.session_state.get("_llm_last_error", "Unknown error")
+                    st.error(
+                        f"❌ Could not generate root causes (required for governance prompt).\n\n"
+                        f"**Error:** {err}")
+                    st.stop()
+
+            with st.spinner("Generating governance recommendations…"):
+                rec_result = _do_governance(prompts, existing_rc, ms)
+
+            recs = rec_result.get("recommendations", [])
+            if recs:
+                for rec in recs:
+                    rec["priority_color"] = PRIORITY_COLORS.get(
+                        rec.get("priority", "Medium"), "#64748b")
+                existing_at = gov.get("generated_at", "") if gov else ""
+                st.session_state.governance_report = {
+                    "root_causes":      existing_rc,
+                    "recommendations":  recs,
+                    "generated_at":     existing_at,
+                    "gov_generated_at": __import__("datetime").datetime.now()
+                                        .strftime("%Y-%m-%d %H:%M:%S"),
+                }
+                st.success(f"✅ {len(recs)} recommendations generated.")
+                st.rerun()
+            else:
+                err = st.session_state.get("_llm_last_error", "Unknown error")
+                st.error(
+                    f"❌ LLM returned no recommendations.\n\n"
+                    f"**Error:** {err}\n\n"
+                    f"Check: (1) Azure credentials, (2) prompt key `{GOV_KEY}` "
+                    f"in prompts.yaml, (3) model deployment name.")
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # Render results
+    # ══════════════════════════════════════════════════════════════════════════
+    gov = st.session_state.governance_report  # re-read after possible update
+    if gov and (gov.get("root_causes") or gov.get("recommendations")):
+        st.divider()
+
+        # ── ROOT CAUSES ───────────────────────────────────────────────────────
+        if gov.get("root_causes"):
+            section_label(f"ROOT CAUSE ANALYSIS  ·  {len(gov['root_causes'])} findings")
+            if gov.get("generated_at"):
+                st.caption(f"Generated at {gov['generated_at']}")
+
+            for i, rc in enumerate(gov["root_causes"], 1):
+                metric  = rc.get("dominant_metric", "")
+                # colour: try to match against legacy metric names
+                LEGACY_COLORS = {
+                    "Decision Flip":        JUDGE_COLORS[0],
+                    "Fairness Degradation": JUDGE_COLORS[1],
+                    "Safety_Drift":         JUDGE_COLORS[2],
+                    "Tone Inequality":      JUDGE_COLORS[3],
+                    "Stereotype Injection": JUDGE_COLORS[4],
+                }
+                m_color = LEGACY_COLORS.get(metric, "#6366f1")
+                ref     = rc.get("framework_reference", {})
+
+                st.markdown(
+                    f'<div style="background:white;border:1px solid #e2e8f0;'
+                    f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
+                    f'border-left:4px solid {m_color};'
+                    f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
+
+                    f'<div style="display:flex;align-items:center;'
+                    f'justify-content:space-between;margin-bottom:12px">'
+                    f'<div style="display:flex;align-items:center;gap:10px">'
+                    f'<span style="background:#f1f5f9;color:#475569;font-size:11px;'
+                    f'font-weight:700;padding:2px 10px;border-radius:20px">#{i}</span>'
+                    f'<span style="font-size:14px;font-weight:700;color:#0f172a">'
+                    f'{rc.get("category","—")}</span>'
+                    f'</div>'
+                    f'<span style="background:{m_color}20;color:{m_color};'
+                    f'padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;'
+                    f'border:1px solid {m_color}40">{metric}</span>'
+                    f'</div>'
+
+                    f'<div style="background:#f8fafc;border-radius:8px;'
+                    f'padding:10px 14px;margin-bottom:10px;font-size:12px;color:#475569">'
+                    f'<span style="font-weight:700;color:#0f172a">Evidence: </span>'
+                    f'{rc.get("score_evidence","—")}</div>'
+
+                    f'<div style="margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#64748b;'
+                    f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">'
+                    f'Root Cause</div>'
+                    f'<div style="font-size:13px;color:#1e293b;line-height:1.7">'
+                    f'{rc.get("root_cause_explanation","—")}</div>'
+                    f'</div>'
+
+                    f'<div style="background:#fef2f2;border-radius:8px;'
+                    f'padding:10px 14px;margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#dc2626;'
+                    f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">'
+                    f'User Impact</div>'
+                    f'<div style="font-size:12px;color:#7f1d1d;line-height:1.6">'
+                    f'{rc.get("user_impact","—")}</div>'
+                    f'</div>'
+
+                    f'<div style="display:flex;align-items:center;gap:8px;'
+                    f'padding-top:8px;border-top:1px solid #f1f5f9">'
+                    f'<span style="font-size:16px">📋</span>'
+                    f'<div>'
+                    f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
+                    f'{ref.get("name","—")}</div>'
+                    f'<div style="font-size:11px;color:#64748b">'
+                    f'{ref.get("description","")}</div>'
+                    + (f'<a href="{ref["url"]}" target="_blank" '
+                       f'style="font-size:11px;color:#2563eb">{ref["url"]}</a>'
+                       if ref.get("url") else "")
+                    + '</div></div></div>',
+                    unsafe_allow_html=True)
+
+            _, dl1 = st.columns([3, 1])
+            with dl1:
+                rc_rows = [{
+                    "Category":        rc.get("category",""),
+                    "Dominant Metric": rc.get("dominant_metric",""),
+                    "Score Evidence":  rc.get("score_evidence",""),
+                    "Root Cause":      rc.get("root_cause_explanation",""),
+                    "User Impact":     rc.get("user_impact",""),
+                    "Framework":       rc.get("framework_reference",{}).get("name",""),
+                    "Framework URL":   rc.get("framework_reference",{}).get("url",""),
+                } for rc in gov["root_causes"]]
+                green_download(
+                    "⬇ Download Root Causes",
+                    to_excel_bytes(pd.DataFrame(rc_rows)),
+                    "root_cause_analysis.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_rc")
+
+        # ── GOVERNANCE RECOMMENDATIONS ────────────────────────────────────────
+        if gov.get("recommendations"):
+            st.markdown("<br>", unsafe_allow_html=True)
+            section_label(
+                f"GOVERNANCE RECOMMENDATIONS  ·  {len(gov['recommendations'])} actions")
+            if gov.get("gov_generated_at"):
+                st.caption(f"Generated at {gov['gov_generated_at']}")
+
+            # Priority summary strip
+            prio_counts = {"Critical": 0, "High": 0, "Medium": 0}
+            for rec in gov["recommendations"]:
+                p = rec.get("priority", "Medium")
+                if p in prio_counts:
+                    prio_counts[p] += 1
+            pc1, pc2, pc3, _ = st.columns([1, 1, 1, 3])
+            for col, (p, clr) in zip(
+                    [pc1, pc2, pc3],
+                    [("Critical","#dc2626"),("High","#d97706"),("Medium","#2563eb")]):
+                col.markdown(
+                    f'<div style="background:white;border:1px solid {clr}40;'
+                    f'border-radius:8px;padding:10px;border-top:3px solid {clr};'
+                    f'text-align:center">'
+                    f'<div style="font-size:10px;color:#64748b;font-weight:700">{p}</div>'
+                    f'<div style="font-size:22px;font-weight:800;color:{clr}">'
+                    f'{prio_counts[p]}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            for rec in gov["recommendations"]:
+                priority = rec.get("priority", "Medium")
+                p_color  = rec.get("priority_color",
+                                   PRIORITY_COLORS.get(priority, "#64748b"))
+                ref      = rec.get("framework_reference", {})
+                metric   = rec.get("metric", "")
+                LEGACY_COLORS = {
+                    "Decision Flip":        JUDGE_COLORS[0],
+                    "Fairness Degradation": JUDGE_COLORS[1],
+                    "Safety_Drift":         JUDGE_COLORS[2],
+                    "Tone Inequality":      JUDGE_COLORS[3],
+                    "Stereotype Injection": JUDGE_COLORS[4],
+                }
+                m_color = LEGACY_COLORS.get(metric, "#6366f1")
+
+                st.markdown(
+                    f'<div style="background:white;border:1px solid #e2e8f0;'
+                    f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
+                    f'border-left:4px solid {p_color};'
+                    f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
+
+                    f'<div style="display:flex;align-items:center;'
+                    f'justify-content:space-between;margin-bottom:12px">'
+                    f'<div style="display:flex;align-items:center;gap:8px">'
+                    f'<span style="background:{p_color};color:white;padding:3px 12px;'
+                    f'border-radius:20px;font-size:10px;font-weight:800">{priority}</span>'
+                    f'<span style="font-size:13px;font-weight:700;color:#0f172a">'
+                    f'{rec.get("category","—")}</span>'
+                    f'</div>'
+                    f'<span style="background:{m_color}20;color:{m_color};'
+                    f'padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;'
+                    f'border:1px solid {m_color}40">{metric}</span>'
+                    f'</div>'
+
+                    f'<div style="margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#64748b;'
+                    f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">'
+                    f'Action</div>'
+                    f'<div style="font-size:13px;color:#1e293b;line-height:1.7">'
+                    f'{rec.get("recommendation","—")}</div>'
+                    f'</div>'
+
+                    f'<div style="background:#f0fdf4;border-radius:8px;'
+                    f'padding:10px 14px;margin-bottom:10px">'
+                    f'<div style="font-size:10px;font-weight:700;color:#16a34a;'
+                    f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">'
+                    f'Expected Impact</div>'
+                    f'<div style="font-size:12px;color:#14532d;line-height:1.6">'
+                    f'{rec.get("expected_impact","—")}</div>'
+                    f'</div>'
+
+                    f'<div style="display:flex;align-items:center;gap:8px;'
+                    f'padding-top:8px;border-top:1px solid #f1f5f9">'
+                    f'<span style="font-size:16px">📋</span>'
+                    f'<div>'
+                    f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
+                    f'{ref.get("name","—")}</div>'
+                    f'<div style="font-size:11px;color:#64748b">'
+                    f'{ref.get("description","")}</div>'
+                    + (f'<a href="{ref["url"]}" target="_blank" '
+                       f'style="font-size:11px;color:#2563eb">{ref["url"]}</a>'
+                       if ref.get("url") else "")
+                    + '</div></div></div>',
+                    unsafe_allow_html=True)
+
+            _, dl2 = st.columns([3, 1])
+            with dl2:
+                rec_rows = [{
+                    "Priority":        rec.get("priority",""),
+                    "Category":        rec.get("category",""),
+                    "Metric":          rec.get("metric",""),
+                    "Recommendation":  rec.get("recommendation",""),
+                    "Expected Impact": rec.get("expected_impact",""),
+                    "Framework":       rec.get("framework_reference",{}).get("name",""),
+                    "Framework URL":   rec.get("framework_reference",{}).get("url",""),
+                } for rec in gov["recommendations"]]
+                green_download(
+                    "⬇ Download Recommendations",
+                    to_excel_bytes(pd.DataFrame(rec_rows)),
+                    "governance_recommendations.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_gov")
