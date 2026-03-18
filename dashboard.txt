@@ -1259,33 +1259,6 @@ elif page == "analysis":
     if gap_summary.empty:
         st.warning("Not enough data to compute gap analysis.")
     else:
-        # ── Heatmap: Gap % (Category × Judge) ─────────────────────────────────
-        pivot_gap = gap_summary.pivot_table(
-            index="Category", columns="Judge",
-            values="Gap %", aggfunc="first"
-        ).reindex(columns=JUDGE_NAMES, fill_value=0).fillna(0)
-        pivot_gap = pivot_gap.reindex(categories, fill_value=0).fillna(0)
-
-        fig_gap = go.Figure(go.Heatmap(
-            z    = pivot_gap.values.tolist(),
-            x    = pivot_gap.columns.tolist(),
-            y    = pivot_gap.index.tolist(),
-            colorscale=[[0,"#f0fdf4"],[0.2,"#fef9c3"],
-                        [0.5,"#fef2f2"],[1,"#dc2626"]],
-            text = [[f"{v:.0f}%" for v in row] for row in pivot_gap.values],
-            texttemplate="%{text}",
-            textfont=dict(size=12, color="#0f172a"),
-            zmin=0, zmax=100,
-            colorbar=dict(title=dict(text="Gap %", side="right"),
-                          ticksuffix="%", len=0.9),
-            hovertemplate="<b>%{y}</b><br>Judge: %{x}<br>Gap: %{z:.1f}%<extra></extra>"))
-        fig_gap.update_layout(**plot_layout(
-            height=max(320, len(categories)*46+100),
-            margin=dict(l=10, r=80, t=60, b=10),
-            xaxis=dict(side="top", tickfont=dict(size=11)),
-            yaxis=dict(autorange="reversed", tickfont=dict(size=11))))
-        st.plotly_chart(fig_gap, use_container_width=True)
-
         # ── Per-judge average gap cards ────────────────────────────────────────
         st.markdown(
             '<div style="font-size:11px;font-weight:700;color:#64748b;'
