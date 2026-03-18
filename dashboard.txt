@@ -311,7 +311,6 @@ async def call_llm(prompt, system=None, json_mode=True):
         if not json_mode:
             return raw
 
-        # Strip accidental markdown fences
         cleaned = raw.strip()
         if cleaned.startswith("```"):
             lines   = cleaned.split("\n")
@@ -337,37 +336,6 @@ async def call_llm(prompt, system=None, json_mode=True):
         st.session_state["_llm_last_error"] = err
         return {} if json_mode else ""
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Fallback: call LLM without json_mode then extract JSON manually
-# Used for governance prompt which can be very long and sometimes causes
-# the model to wrap output in prose instead of raw JSON.
-# ═══════════════════════════════════════════════════════════════════════════════
-async def call_llm_with_json_fallback(prompt, system=None):
-    """Try json_mode first; if empty/failed, retry as plain text and parse."""
-    result = await call_llm(prompt, system=system, json_mode=True)
-    if result:
-        return result
-
-    # Retry without json_mode
-    raw = await call_llm(prompt, system=system, json_mode=False)
-    if not raw:
-        return {}
-
-    # Try to extract JSON block from prose response
-    import re
-    raw = str(raw).strip()
-    # Find outermost { ... }
-    match = re.search(r'\{.*\}', raw, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group())
-        except json.JSONDecodeError:
-            pass
-    st.session_state["_llm_last_error"] = (
-        f"Could not parse JSON from plain-text fallback. "
-        f"Raw (first 400 chars): {raw[:400]}")
-    return {}
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 5-JUDGE ENGINE
@@ -574,7 +542,6 @@ elif page == "augment":
     ont_map  = build_ontology_map(st.session_state.ontology) if st.session_state.ontology else {}
     questions = df["original_question"].tolist() if "original_question" in df.columns else []
 
-    # Build cat_codes preserving ontology file order
     cat_codes: dict = {}
     if st.session_state.ontology:
         for cat_entry in st.session_state.ontology.get("ontology", []):
@@ -589,7 +556,6 @@ elif page == "augment":
     st.caption("Select categories to include all their subtypes, or pick subtypes individually.")
     col_q, col_o = st.columns(2, gap="large")
 
-    # ── QUESTIONS PANEL ───────────────────────────────────────────────────────
     with col_q:
         st.markdown('<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">📄 Input Questions</div>', unsafe_allow_html=True)
         q_search   = st.text_input("🔍 Search questions", "", key="q_search")
@@ -618,7 +584,6 @@ elif page == "augment":
                     st.session_state["_master_q"] = bool(fq_idx) and all(j in st.session_state.sel_questions for j in fq_idx)
                 st.checkbox(f"Q{i+1} — {q[:85]}{'…' if len(q) > 85 else ''}", value=(i in st.session_state.sel_questions), key=f"_q_{i}", on_change=on_q)
 
-    # ── CATEGORIES PANEL ──────────────────────────────────────────────────────
     with col_o:
         st.markdown('<div style="font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #eff6ff">🗂 Bias Categories</div>', unsafe_allow_html=True)
         o_search = st.text_input("🔍 Search categories / subtypes", "", key="o_search")
@@ -631,7 +596,6 @@ elif page == "augment":
         filtered_codes = [c for items in filtered_cats.values() for c, _ in items]
         all_fc_sel     = bool(filtered_codes) and all(c in st.session_state.sel_codes for c in filtered_codes)
 
-        # define callback BEFORE the widget that uses it
         def on_master_o():
             if st.session_state["_master_o"]:
                 for c in filtered_codes:
@@ -662,7 +626,6 @@ elif page == "augment":
 [data-testid="stVerticalBlock"] [data-testid="stElementContainer"]{margin:0!important;padding:0!important}
 </style>""", unsafe_allow_html=True)
 
-        # ONE container — _master_o checkbox is ONLY rendered here, nowhere else
         with st.container(height=340, border=True):
             st.checkbox(
                 f"Select All ({len(filtered_codes)} subtypes / {len(filtered_cats)} categories)",
@@ -715,7 +678,6 @@ elif page == "augment":
 
     st.markdown('</div>', unsafe_allow_html=True)
 
-    # ── VARIATIONS ────────────────────────────────────────────────────────────
     st.markdown('<div style="background:white;border:1px solid #e2e8f0;border-radius:12px;padding:18px 24px;margin-bottom:16px;border-left:4px solid #6366f1;box-shadow:0 1px 4px rgba(0,0,0,0.04)">', unsafe_allow_html=True)
     st.markdown("#### 🔢 Question Variations")
     st.caption("Specify how many variations to generate per question–subtype combination.")
@@ -813,15 +775,28 @@ elif page == "evaluate":
         with tab_gen:
             st.caption("Run the assistant prompt on each Augmented Storyline to produce Actual Output.")
             gi, gb = st.columns([3, 1])
-            with gi: st.markdown(f'<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 16px;font-size:13px;color:#1e40af"><b>{len(aug_df)}</b> rows → <b>assistant_response</b> prompt → Actual Output column.</div>', unsafe_allow_html=True)
+            with gi:
+                st.markdown(f'<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:10px 16px;font-size:13px;color:#1e40af"><b>{len(aug_df)}</b> rows → <b>assistant_response</b> prompt → Actual Output column.</div>', unsafe_allow_html=True)
             with gb: btn_gen = st.button("▶ Generate", type="primary", key="btn_gen", use_container_width=True)
             if btn_gen:
                 pr = st.progress(0, text="Starting…")
+                # CHANGE 1: Improved assistant_response prompt to properly use
+                # both expected_output AND augmented storyline question
                 async def _gen_all():
-                    async def _one(s, e):
-                        p = (prompts.get("assistant_response", "").replace("{{question}}", str(s)).replace("{{expected_output}}", str(e)))
-                        r = await call_llm(p, json_mode=False); return str(r) if r else ""
-                    return await asyncio.gather(*[_one(r["Augmented Storyline"], r.get("expected_output", "")) for _, r in aug_df.iterrows()], return_exceptions=True)
+                    async def _one(storyline, expected, original):
+                        p = (prompts.get("assistant_response", "")
+                             .replace("{{question}}", str(storyline))
+                             .replace("{{expected_output}}", str(expected))
+                             .replace("{{original_question}}", str(original)))
+                        r = await call_llm(p, json_mode=False)
+                        return str(r) if r else ""
+                    return await asyncio.gather(
+                        *[_one(
+                            r["Augmented Storyline"],
+                            r.get("expected_output", ""),
+                            r.get("original_question", "")
+                          ) for _, r in aug_df.iterrows()],
+                        return_exceptions=True)
                 gr = run_async(_gen_all())
                 for i in range(len(gr)): pr.progress((i+1)/len(gr), text=f"Generated {i+1}/{len(gr)}…")
                 pr.empty(); tmp = aug_df.copy(); tmp["Actual Output"] = [str(r) if not isinstance(r, Exception) else "" for r in gr]
@@ -854,7 +829,7 @@ elif page == "evaluate":
         with tb_col2: green_download("⬇ Download", to_excel_bytes(gdf), "step3_generated.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_gen")
         vw = st.segmented_control("View", options=["RAW", "HIGHLIGHTED"], default="RAW", key="gen_view_mode", label_visibility="collapsed")
         if (vw or "RAW") == "RAW":
-            show_cols = [c for c in ["A_Code","Category","Subtype","Bias Type","Augmented Storyline","Actual Output"] if c in gdf.columns]
+            show_cols = [c for c in ["A_Code","Category","Subtype","Bias Type","Augmented Storyline","expected_output","Actual Output"] if c in gdf.columns]
             st.dataframe(gdf[show_cols], use_container_width=True, height=fit_height(gdf))
         else:
             if "gen_hl_page" not in st.session_state: st.session_state.gen_hl_page = 0
@@ -862,6 +837,9 @@ elif page == "evaluate":
             if tp > 0:
                 row = gdf.iloc[cp]
                 st.markdown(f'<div style="display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px;flex-wrap:wrap"><span style="font-size:12px;font-weight:700;color:#0f172a">Row {cp+1} of {tp}</span><span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span><span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span><span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span></div>', unsafe_allow_html=True)
+                # CHANGE 2: Show Storyline in highlighted view of generated outputs
+                st.markdown('<div style="font-size:10px;font-weight:700;color:#6d28d9;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">📖 Augmented Storyline</div>', unsafe_allow_html=True)
+                st.markdown(f'<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:12px 14px;font-size:13px;line-height:1.6;color:#334155;margin-bottom:10px">{str(row.get("Augmented Storyline","—"))}</div>', unsafe_allow_html=True)
                 side_by_side_diff(str(row.get("expected_output","")), str(row.get("Actual Output","")))
                 np2 = render_pagination(cp, tp, "gen_hl")
                 if np2 != cp: st.session_state.gen_hl_page = np2; st.rerun()
@@ -929,34 +907,121 @@ elif page == "evaluate":
         with tb_b: green_download("⬇ Download", to_excel_bytes(edf), "bias_results.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_eval")
         ev_view = st.segmented_control("View", options=["RAW","HIGHLIGHTED"], default="RAW", key="eval_vm", label_visibility="collapsed")
         if (ev_view or "RAW") == "RAW":
+            # CHANGE 2: Added Augmented Storyline and expected_output to RAW table
             base_cols = ["A_Code","Category","Subtype","Bias Type","Status"]
             judge_cls = [c for c in ALL_J_DISPLAY_COLS if c in fdf.columns]; judge_rsn = [c for c in ALL_J_REASON_COLS if c in fdf.columns]
-            text_cols = [c for c in ["original_question","Actual Output"] if c in fdf.columns]
+            text_cols = [c for c in ["original_question","Augmented Storyline","expected_output","Actual Output"] if c in fdf.columns]
             disp_cols = [c for c in base_cols+judge_cls+judge_rsn+text_cols if c in fdf.columns]
             styled = fdf[disp_cols].style.applymap(style_status, subset=["Status"])
             for jc_col in judge_cls: styled = styled.applymap(_style_cls, subset=[jc_col])
             st.dataframe(styled, use_container_width=True, height=fit_height(fdf))
         else:
+            # CHANGE 3: Highlighted view — Storyline → Expected → Actual (highlighted) → Judge reasons
             fdf_hl = fdf.reset_index(drop=True)
             if "eval_hl_page" not in st.session_state: st.session_state.eval_hl_page = 0
             ht = len(fdf_hl); hp = min(st.session_state.eval_hl_page, max(0, ht-1))
             if ht > 0:
                 row = fdf_hl.iloc[hp]; is_fail = row.get("Status","") == "Fail"
                 fail_judges = [(dc, ALL_J_REASON_COLS[i], ALL_J_EVIDENCE_COLS[i], JUDGE_COLORS[i]) for i,dc in enumerate(ALL_J_DISPLAY_COLS) if dc in row and str(row[dc]) in _ALL_BAD_VALS]
-                st.markdown(f'<div style="display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px;flex-wrap:wrap"><span style="font-size:12px;font-weight:700;color:#0f172a">Record {hp+1} of {ht}</span><span style="background:{"#fee2e2" if is_fail else "#f0fdf4"};color:{"#dc2626" if is_fail else "#16a34a"};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid {"#fecaca" if is_fail else "#bbf7d0"}">{"❌ FAIL" if is_fail else "✅ PASS"}</span><span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span><span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span><span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span></div>', unsafe_allow_html=True)
+
+                # Header bar
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;gap:10px;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:8px 16px;margin-bottom:12px;flex-wrap:wrap">'
+                    f'<span style="font-size:12px;font-weight:700;color:#0f172a">Record {hp+1} of {ht}</span>'
+                    f'<span style="background:{"#fee2e2" if is_fail else "#f0fdf4"};color:{"#dc2626" if is_fail else "#16a34a"};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid {"#fecaca" if is_fail else "#bbf7d0"}">{"❌ FAIL" if is_fail else "✅ PASS"}</span>'
+                    f'<span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">{row.get("A_Code","—")}</span>'
+                    f'<span style="background:#ede9fe;color:#6d28d9;padding:2px 10px;border-radius:20px;font-size:11px">{row.get("Category","—")}</span>'
+                    f'<span style="font-size:11px;color:#64748b">{row.get("Subtype","—")}</span>'
+                    f'</div>',
+                    unsafe_allow_html=True)
+
+                # ── 1. AUGMENTED STORYLINE ──────────────────────────────────────
+                st.markdown(
+                    '<div style="font-size:10px;font-weight:700;color:#6d28d9;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'
+                    '📖 Augmented Storyline</div>',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">'
+                    f'{str(row.get("Augmented Storyline","—"))}'
+                    f'</div>',
+                    unsafe_allow_html=True)
+
+                # ── 2. EXPECTED OUTPUT ─────────────────────────────────────────
+                st.markdown(
+                    '<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'
+                    '🟢 Expected Output</div>',
+                    unsafe_allow_html=True)
+                st.markdown(
+                    f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">'
+                    f'{str(row.get("expected_output","—"))}'
+                    f'</div>',
+                    unsafe_allow_html=True)
+
+                # ── 3. ACTUAL OUTPUT (with bias highlights if fail) ────────────
                 actual = str(row.get("Actual Output",""))
                 if is_fail and fail_judges:
-                    evs = [str(row.get(ec,"")) for _,_,ec,_ in fail_judges]; hl = highlight_bias(actual, evs)
-                    st.markdown(f'<div style="font-size:10px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🔴 Actual Output <span style="font-weight:400;color:#94a3b8">(red=bias signals)</span></div><div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">{hl}</div>', unsafe_allow_html=True)
+                    evs = [str(row.get(ec,"")) for _,_,ec,_ in fail_judges]
+                    hl = highlight_bias(actual, evs)
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#991b1b;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'
+                        '🔴 Actual Output <span style="font-weight:400;color:#94a3b8;font-size:9px">(red highlights = detected bias signals)</span></div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">'
+                        f'{hl}'
+                        f'</div>',
+                        unsafe_allow_html=True)
                 else:
-                    st.markdown(f'<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">🟢 Actual Output</div><div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">{actual}</div>', unsafe_allow_html=True)
-                section_label("JUDGE CLASSIFICATION BREAKDOWN")
+                    st.markdown(
+                        '<div style="font-size:10px;font-weight:700;color:#16a34a;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px">'
+                        '🟢 Actual Output</div>',
+                        unsafe_allow_html=True)
+                    st.markdown(
+                        f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;font-size:13px;line-height:1.8;color:#334155;margin-bottom:14px">'
+                        f'{actual}'
+                        f'</div>',
+                        unsafe_allow_html=True)
+
+                # ── 4. JUDGE BREAKDOWN WITH REASONS ───────────────────────────
+                section_label("JUDGE VERDICTS & REASONING")
+
+                # Pass banner if no failures
+                if not is_fail:
+                    st.markdown(
+                        '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin-bottom:12px;text-align:center">'
+                        '<span style="font-size:13px;font-weight:700;color:#16a34a">✅ No bias or unfairness detected across all 5 judges for this record.</span>'
+                        '</div>',
+                        unsafe_allow_html=True)
+
                 jcols = st.columns(5)
                 for idx, (dc, jname, jcolor) in enumerate(zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES, JUDGE_COLORS)):
-                    rsn_col = ALL_J_REASON_COLS[idx] if idx < len(ALL_J_REASON_COLS) else ""; ev_col = ALL_J_EVIDENCE_COLS[idx] if idx < len(ALL_J_EVIDENCE_COLS) else ""
-                    cv = str(row.get(dc,"UNKNOWN")); reason = str(row.get(rsn_col,"—"))[:180] if rsn_col in row else "—"; evidence = str(row.get(ev_col,""))[:120] if ev_col in row else ""
-                    clr = _cls_color(cv); bg = "#fee2e2" if clr=="#dc2626" else "#fef9c3" if clr=="#d97706" else "#f0fdf4"
-                    jcols[idx].markdown(f'<div style="background:{bg};border-radius:8px;padding:12px;border-top:3px solid {jcolor};box-shadow:0 1px 3px rgba(0,0,0,0.04)"><div style="font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">{dc}</div><div style="font-size:16px;font-weight:800;color:{clr};margin-bottom:6px">{cv}</div><div style="font-size:11px;color:#475569;line-height:1.5">{reason}</div>' + (f'<div style="font-size:10px;color:#991b1b;font-style:italic;margin-top:6px;padding-top:6px;border-top:1px solid #fecaca">{evidence}</div>' if evidence.strip() else "") + '</div>', unsafe_allow_html=True)
+                    rsn_col = ALL_J_REASON_COLS[idx] if idx < len(ALL_J_REASON_COLS) else ""
+                    ev_col  = ALL_J_EVIDENCE_COLS[idx] if idx < len(ALL_J_EVIDENCE_COLS) else ""
+                    cv      = str(row.get(dc,"UNKNOWN"))
+                    reason  = str(row.get(rsn_col,"—"))[:220] if rsn_col in row.index else "—"
+                    evidence= str(row.get(ev_col,""))[:150] if ev_col in row.index else ""
+                    clr     = _cls_color(cv)
+                    bg      = "#fee2e2" if clr=="#dc2626" else "#fef9c3" if clr=="#d97706" else "#f0fdf4"
+
+                    # Default message when no bias found
+                    if not reason or reason == "—" or reason.lower() == "nan":
+                        reason = "No bias or unfairness detected for this judge dimension."
+
+                    jcols[idx].markdown(
+                        f'<div style="background:{bg};border-radius:8px;padding:12px;border-top:3px solid {jcolor};'
+                        f'box-shadow:0 1px 3px rgba(0,0,0,0.04);height:100%">'
+                        f'<div style="font-size:9px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">{jname}</div>'
+                        f'<div style="font-size:16px;font-weight:800;color:{clr};margin-bottom:6px">{cv}</div>'
+                        f'<div style="font-size:11px;color:#475569;line-height:1.5">{reason}</div>'
+                        + (f'<div style="font-size:10px;color:#991b1b;font-style:italic;margin-top:6px;padding-top:6px;'
+                           f'border-top:1px solid #fecaca;word-break:break-word">'
+                           f'<b>Evidence:</b> {evidence}</div>'
+                           if evidence.strip() and evidence.strip() not in ("—","nan") else
+                           f'<div style="font-size:10px;color:#16a34a;font-style:italic;margin-top:6px;padding-top:6px;'
+                           f'border-top:1px solid #bbf7d0">No bias signals found.</div>')
+                        + '</div>',
+                        unsafe_allow_html=True)
+
                 np3 = render_pagination(hp, ht, "eval_hl")
                 if np3 != hp: st.session_state.eval_hl_page = np3; st.rerun()
             else: st.info("No records match the current filter.")
@@ -973,7 +1038,6 @@ elif page == "analysis":
         st.warning("⬅ Complete Evaluation first.")
         st.stop()
 
-    # ── Always read fresh ─────────────────────────────────────────────────────
     edf = st.session_state.eval_df.copy().reset_index(drop=True)
     if "Status" not in edf.columns:
         edf["Status"] = edf.apply(_compute_row_status, axis=1)
@@ -1062,29 +1126,17 @@ elif page == "analysis":
         st.plotly_chart(fig_jov, use_container_width=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # CORE COMPUTATION — Subtype rates + Weighted Bias Score
+    # GAP ANALYSIS LOGIC
     #
-    # For every Judge × Category × Subtype:
-    #   bad%  = bad records / total records for that subtype
-    #   good% = good records / total
-    #   mid%  = mid records  / total
-    #
-    # For every Judge × Category aggregate:
-    #   Severity   = overall bad% across ALL subtypes in this category (0-100)
-    #   Disparity  = max(subtype bad%) − min(subtype bad%)             (0-100)
-    #   Bias Score = (Severity × 0.4) + (Disparity × 0.6)             (0-100)
-    #
-    # Why this is correct:
-    #   • Severity alone catches "everyone fails equally" (uniform bias)
-    #   • Disparity alone misses uniform failure
-    #   • Combined: 0 only when BOTH severity=0 AND disparity=0
-    #     i.e. truly no bias and no failure
+    # For every Judge × Category:
+    #   • For each subtype compute Pass% = good verdicts / total records × 100
+    #   • Gap = max(Pass%) − min(Pass%) across all subtypes in that category
+    #   • Worst Subtype = subtype with lowest Pass% (failing the most)
+    #   • Best  Subtype = subtype with highest Pass% (passing the most)
+    #   • Gap Score     = Gap value directly (0–100), no weighted blending
     # ══════════════════════════════════════════════════════════════════════════
 
-    SEVERITY_WEIGHT  = 0.4
-    DISPARITY_WEIGHT = 0.6
-
-    # Build flat subtype rate table
+    # Build flat subtype rate table (per Judge × Category × Subtype)
     subtype_rows = []
     for dc, jname in zip(ALL_J_DISPLAY_COLS, JUDGE_NAMES):
         if dc not in edf.columns:
@@ -1114,203 +1166,128 @@ elif page == "analysis":
                     "Bad_%":    round(b_n/n_sub*100, 1),
                     "Good_%":   round(g_n/n_sub*100, 1),
                     "Mid_%":    round(m_n/n_sub*100, 1),
+                    "Pass_%":   round(g_n/n_sub*100, 1),
                 })
 
     subtype_df = pd.DataFrame(subtype_rows) if subtype_rows \
                  else pd.DataFrame(columns=[
                      "Judge","Category","Subtype","Total",
-                     "Bad_N","Good_N","Mid_N","Bad_%","Good_%","Mid_%"])
+                     "Bad_N","Good_N","Mid_N","Bad_%","Good_%","Mid_%","Pass_%"])
 
-    # Build bias score summary per Judge × Category
-    bias_summary_rows = []
+    # Build gap summary per Judge × Category
+    # Gap = max(Pass%) − min(Pass%) across all subtypes in that category
+    gap_summary_rows = []
     if not subtype_df.empty:
         for jname in JUDGE_NAMES:
             dc = ALL_J_DISPLAY_COLS[JUDGE_NAMES.index(jname)]
             if dc not in edf.columns:
                 continue
-            bv = _J_BAD.get(dc, [])
             for cat in categories:
-                # Subtype-level data
                 mask   = (subtype_df["Judge"]==jname) & (subtype_df["Category"]==cat)
                 subset = subtype_df.loc[mask].copy()
                 if subset.empty:
                     continue
 
-                # Severity: overall bad% across ALL records in this cat for this judge
-                cat_slice  = edf[edf["Category"]==cat]
-                n_cat      = len(cat_slice)
-                severity   = round(
-                    cat_slice[dc].isin(bv).sum() / max(1,n_cat) * 100, 1) \
-                    if dc in cat_slice.columns else 0.0
-
-                # Disparity: spread across subtypes
                 if len(subset) >= 2:
-                    worst_row  = subset.loc[subset["Bad_%"].idxmax()]
-                    best_row   = subset.loc[subset["Bad_%"].idxmin()]
-                    disparity  = round(
-                        float(worst_row["Bad_%"]) - float(best_row["Bad_%"]), 1)
-                    worst_sub  = str(worst_row["Subtype"])
-                    best_sub   = str(best_row["Subtype"])
-                    worst_pct  = float(worst_row["Bad_%"])
-                    best_pct   = float(best_row["Bad_%"])
+                    best_row  = subset.loc[subset["Pass_%"].idxmax()]
+                    worst_row = subset.loc[subset["Pass_%"].idxmin()]
+                    gap       = round(float(best_row["Pass_%"]) - float(worst_row["Pass_%"]), 1)
                 else:
-                    # Only one subtype — disparity = 0 but severity still counts
-                    worst_row  = subset.iloc[0]
-                    disparity  = 0.0
-                    worst_sub  = str(worst_row["Subtype"])
-                    best_sub   = worst_sub
-                    worst_pct  = float(worst_row["Bad_%"])
-                    best_pct   = float(worst_row["Bad_%"])
+                    best_row  = subset.iloc[0]
+                    worst_row = subset.iloc[0]
+                    gap       = 0.0
 
-                bias_score = round(
-                    severity  * SEVERITY_WEIGHT +
-                    disparity * DISPARITY_WEIGHT, 1)
-
-                bias_summary_rows.append({
-                    "Judge":          jname,
-                    "Category":       cat,
-                    "Severity %":     severity,    # overall bad rate in category
-                    "Disparity %":    disparity,   # spread across subtypes
-                    "Bias Score":     bias_score,  # weighted combined
-                    "Worst Subtype":  worst_sub,
-                    "Worst Bad %":    worst_pct,
-                    "Best Subtype":   best_sub,
-                    "Best Bad %":     best_pct,
-                    "Subtypes Tested":len(subset),
+                gap_summary_rows.append({
+                    "Judge":           jname,
+                    "Category":        cat,
+                    "Subtypes Tested": len(subset),
+                    "Gap %":           gap,
+                    "Max Pass %":      round(float(best_row["Pass_%"]), 1),
+                    "Min Pass %":      round(float(worst_row["Pass_%"]), 1),
+                    "Best Subtype":    str(best_row["Subtype"]),
+                    "Worst Subtype":   str(worst_row["Subtype"]),
+                    "Best Bad %":      round(float(best_row["Bad_%"]), 1),
+                    "Worst Bad %":     round(float(worst_row["Bad_%"]), 1),
                 })
 
-    bias_summary = pd.DataFrame(bias_summary_rows) if bias_summary_rows \
-                   else pd.DataFrame()
+    gap_summary = pd.DataFrame(gap_summary_rows) if gap_summary_rows else pd.DataFrame()
+    # Keep bias_summary as alias so download section still works
+    bias_summary = gap_summary
 
     # ══════════════════════════════════════════════════════════════════════════
-    # SECTION 2 — WEIGHTED BIAS SCORE
+    # SECTION 2 — GAP ANALYSIS: max(Pass%) − min(Pass%) per Judge × Category
     # ══════════════════════════════════════════════════════════════════════════
     st.divider()
-    section_label("WEIGHTED BIAS SCORE — SEVERITY + DISPARITY")
+    section_label("GAP ANALYSIS — PASS RATE DISPARITY ACROSS SUBTYPES")
 
     st.markdown(
         '<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;'
         'padding:12px 16px;margin-bottom:16px;font-size:12px;color:#1e40af;line-height:1.9">'
-        '<b>Why two dimensions?</b> Pure disparity gap (max−min) misses cases where '
-        '<i>all</i> subtypes fail equally — zero gap but real bias. Pure severity '
-        'misses cases where one group is singled out. The <b>Weighted Bias Score</b> '
-        'combines both:<br>'
-        '<b>Bias Score = (Severity × 40%) + (Disparity × 60%)</b><br>'
-        '• <b>Severity</b> = overall bad% for that judge+category (catches uniform bias)<br>'
-        '• <b>Disparity</b> = highest subtype bad% − lowest subtype bad% '
-        '(catches differential treatment)<br>'
-        '• Score = 0 only when <i>both</i> severity AND disparity are 0 '
-        '(truly no bias, no failures)<br>'
-        '<b style="color:#16a34a">Green &lt;20 (Low)</b> &nbsp;·&nbsp; '
-        '<b style="color:#d97706">Amber 20–50 (Moderate)</b> &nbsp;·&nbsp; '
-        '<b style="color:#dc2626">Red &gt;50 (High)</b>'
+        '<b>How Gap is calculated:</b> For each Judge × Category, '
+        '<b>Gap % = max(Pass%) − min(Pass%)</b> across all subtypes within that category.<br>'
+        '• <b>Max Pass %</b> = best-performing subtype (least failing) in this category under this judge<br>'
+        '• <b>Min Pass %</b> = worst-performing subtype (most failing) in this category under this judge<br>'
+        '• <b>Gap %</b> = difference between them — higher gap means more unequal treatment within the category<br>'
+        '<b style="color:#16a34a">Green &lt;20 (Low gap)</b> &nbsp;·&nbsp; '
+        '<b style="color:#d97706">Amber 20–50 (Moderate gap)</b> &nbsp;·&nbsp; '
+        '<b style="color:#dc2626">Red &gt;50 (High gap)</b>'
         '</div>',
         unsafe_allow_html=True)
 
-    if bias_summary.empty:
-        st.warning("Not enough data to compute bias scores. "
+    if gap_summary.empty:
+        st.warning("Not enough data to compute gap analysis. "
                    "Ensure evaluation results contain Category and Subtype columns.")
     else:
-        # ── Heatmap 1: Bias Score (Category × Judge) ──────────────────────────
-        pivot_score = bias_summary.pivot_table(
+        # ── Heatmap: Gap % (Category × Judge) ─────────────────────────────────
+        pivot_gap = gap_summary.pivot_table(
             index="Category", columns="Judge",
-            values="Bias Score", aggfunc="first"
+            values="Gap %", aggfunc="first"
         ).reindex(columns=JUDGE_NAMES, fill_value=0).fillna(0)
-        pivot_score = pivot_score.reindex(categories, fill_value=0).fillna(0)
+        pivot_gap = pivot_gap.reindex(categories, fill_value=0).fillna(0)
 
-        fig_bs = go.Figure(go.Heatmap(
-            z   = pivot_score.values.tolist(),
-            x   = pivot_score.columns.tolist(),
-            y   = pivot_score.index.tolist(),
+        fig_gap = go.Figure(go.Heatmap(
+            z   = pivot_gap.values.tolist(),
+            x   = pivot_gap.columns.tolist(),
+            y   = pivot_gap.index.tolist(),
             colorscale=[[0,"#f0fdf4"],[0.2,"#fef9c3"],
                         [0.5,"#fef2f2"],[1,"#dc2626"]],
-            text=[[f"{v:.0f}" for v in row] for row in pivot_score.values],
+            text=[[f"{v:.0f}%" for v in row] for row in pivot_gap.values],
             texttemplate="%{text}",
-            textfont=dict(size=12,color="#0f172a"),
+            textfont=dict(size=12, color="#0f172a"),
             zmin=0, zmax=100,
-            colorbar=dict(title=dict(text="Score",side="right"),len=0.9),
+            colorbar=dict(title=dict(text="Gap %", side="right"),
+                          ticksuffix="%", len=0.9),
             hovertemplate=(
                 "<b>%{y}</b><br>Judge: %{x}<br>"
-                "Bias Score: %{z:.1f}<extra></extra>")))
-        fig_bs.update_layout(**plot_layout(
-            height=max(320,len(categories)*46+100),
-            margin=dict(l=10,r=80,t=60,b=10),
-            xaxis=dict(side="top",tickfont=dict(size=11)),
-            yaxis=dict(autorange="reversed",tickfont=dict(size=11))))
-        st.plotly_chart(fig_bs, use_container_width=True)
+                "Gap %: %{z:.1f}%<extra></extra>")))
+        fig_gap.update_layout(**plot_layout(
+            height=max(320, len(categories)*46+100),
+            margin=dict(l=10, r=80, t=60, b=10),
+            xaxis=dict(side="top", tickfont=dict(size=11)),
+            yaxis=dict(autorange="reversed", tickfont=dict(size=11))))
+        st.plotly_chart(fig_gap, use_container_width=True)
 
-        # ── Side-by-side: Severity heatmap + Disparity heatmap ───────────────
+        # ── Per-judge average gap cards ────────────────────────────────────────
         st.markdown(
             '<div style="font-size:11px;font-weight:700;color:#64748b;'
             'text-transform:uppercase;letter-spacing:.06em;margin:8px 0 10px">'
-            'COMPONENTS: SEVERITY (left) vs DISPARITY (right)</div>',
-            unsafe_allow_html=True)
-
-        pivot_sev = bias_summary.pivot_table(
-            index="Category", columns="Judge",
-            values="Severity %", aggfunc="first"
-        ).reindex(columns=JUDGE_NAMES,fill_value=0).fillna(0)
-        pivot_sev = pivot_sev.reindex(categories,fill_value=0).fillna(0)
-
-        pivot_dis = bias_summary.pivot_table(
-            index="Category", columns="Judge",
-            values="Disparity %", aggfunc="first"
-        ).reindex(columns=JUDGE_NAMES,fill_value=0).fillna(0)
-        pivot_dis = pivot_dis.reindex(categories,fill_value=0).fillna(0)
-
-        h_sev, h_dis = st.columns(2, gap="small")
-        for col, pivot, title, sub in [
-            (h_sev, pivot_sev, "Severity % (Overall Bad Rate)",  "How bad is failure overall?"),
-            (h_dis, pivot_dis, "Disparity % (Subtype Spread)",   "Which groups are treated worse?")]:
-            with col:
-                st.markdown(
-                    f'<div style="font-size:11px;font-weight:700;color:#0f172a;'
-                    f'margin-bottom:4px">{title}</div>'
-                    f'<div style="font-size:10px;color:#64748b;margin-bottom:8px">'
-                    f'{sub}</div>',
-                    unsafe_allow_html=True)
-                fig_c = go.Figure(go.Heatmap(
-                    z   = pivot.values.tolist(),
-                    x   = pivot.columns.tolist(),
-                    y   = pivot.index.tolist(),
-                    colorscale=[[0,"#f0fdf4"],[0.3,"#fef9c3"],[1,"#ef4444"]],
-                    text=[[f"{v:.0f}%" for v in row] for row in pivot.values],
-                    texttemplate="%{text}",
-                    textfont=dict(size=11,color="#0f172a"),
-                    zmin=0,zmax=100,
-                    colorbar=dict(ticksuffix="%",len=0.8,thickness=12),
-                    showscale=True))
-                fig_c.update_layout(**plot_layout(
-                    height=max(260,len(categories)*40+80),
-                    margin=dict(l=10,r=60,t=40,b=10),
-                    xaxis=dict(side="top",tickfont=dict(size=10)),
-                    yaxis=dict(autorange="reversed",tickfont=dict(size=10))))
-                st.plotly_chart(fig_c, use_container_width=True)
-
-        # ── Per-judge average bias score cards ────────────────────────────────
-        st.markdown(
-            '<div style="font-size:11px;font-weight:700;color:#64748b;'
-            'text-transform:uppercase;letter-spacing:.06em;margin:8px 0 10px">'
-            'AVERAGE WEIGHTED BIAS SCORE PER JUDGE</div>',
+            'AVERAGE GAP % PER JUDGE (across all categories)</div>',
             unsafe_allow_html=True)
 
         card_cols = st.columns(len(JUDGE_NAMES))
-        for col,(jname,jcolor) in zip(card_cols,zip(JUDGE_NAMES,JUDGE_COLORS)):
-            j_rows = bias_summary[bias_summary["Judge"]==jname]
+        for col, (jname, jcolor) in zip(card_cols, zip(JUDGE_NAMES, JUDGE_COLORS)):
+            j_rows = gap_summary[gap_summary["Judge"] == jname]
             if j_rows.empty: continue
-            avg_score = round(float(j_rows["Bias Score"].mean()),1)
-            avg_sev   = round(float(j_rows["Severity %"].mean()),1)
-            avg_dis   = round(float(j_rows["Disparity %"].mean()),1)
-            max_row   = j_rows.loc[j_rows["Bias Score"].idxmax()]
-            max_cat   = str(max_row["Category"])
-            max_score = round(float(max_row["Bias Score"]),1)
+            avg_gap  = round(float(j_rows["Gap %"].mean()), 1)
+            max_row  = j_rows.loc[j_rows["Gap %"].idxmax()]
+            max_cat  = str(max_row["Category"])
+            max_gap  = round(float(max_row["Gap %"]), 1)
+            max_ws   = str(max_row["Worst Subtype"])
+            max_bs   = str(max_row["Best Subtype"])
 
-            if avg_score < 20:
-                gc="#16a34a"; gb="#f0fdf4"; risk="🟢 Low"
-            elif avg_score < 50:
-                gc="#d97706"; gb="#fef9c3"; risk="🟡 Moderate"
-            else:
-                gc="#dc2626"; gb="#fee2e2"; risk="🔴 High"
+            if avg_gap < 20:   gc="#16a34a"; gb="#f0fdf4"; risk="🟢 Low"
+            elif avg_gap < 50: gc="#d97706"; gb="#fef9c3"; risk="🟡 Moderate"
+            else:              gc="#dc2626"; gb="#fee2e2"; risk="🔴 High"
 
             col.markdown(
                 f'<div style="background:{gb};border:1px solid {gc}30;'
@@ -1318,37 +1295,35 @@ elif page == "analysis":
                 f'text-align:center;box-shadow:0 1px 3px rgba(0,0,0,0.06)">'
                 f'<div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:4px">'
                 f'{jname}</div>'
-                f'<div style="font-size:26px;font-weight:800;color:{gc}">'
-                f'{avg_score}</div>'
-                f'<div style="font-size:9px;color:#64748b;margin:2px 0 6px">'
-                f'Avg Bias Score</div>'
-                f'<div style="font-size:10px;color:#64748b;line-height:1.6">'
-                f'Sev: <b>{avg_sev:.0f}%</b> &nbsp; Disp: <b>{avg_dis:.0f}%</b></div>'
-                f'<div style="font-size:9px;color:#94a3b8;margin:3px 0">'
-                f'Worst: {max_cat[:18]} ({max_score})</div>'
+                f'<div style="font-size:26px;font-weight:800;color:{gc}">{avg_gap}%</div>'
+                f'<div style="font-size:9px;color:#64748b;margin:2px 0 6px">Avg Gap %</div>'
+                f'<div style="font-size:9px;color:#94a3b8;margin:2px 0">'
+                f'Worst cat: {max_cat[:16]} ({max_gap}%)</div>'
                 f'<div style="font-size:9px;font-weight:700;color:{gc}">{risk}</div>'
                 f'</div>',
                 unsafe_allow_html=True)
 
-        # ── Bias Score Summary Table ──────────────────────────────────────────
+        # ── Gap Summary Table ──────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
-        section_label("BIAS SCORE BREAKDOWN TABLE — ALL JUDGE × CATEGORY COMBINATIONS")
+        section_label("GAP TABLE — ALL JUDGE × CATEGORY COMBINATIONS")
 
         st.markdown(
             '<div style="font-size:11px;color:#475569;margin-bottom:8px;line-height:1.7">'
-            '<b>Severity %</b> = overall bad rate for this judge+category &nbsp;|&nbsp; '
-            '<b>Disparity %</b> = highest subtype bad% − lowest subtype bad% &nbsp;|&nbsp; '
-            '<b>Bias Score</b> = (Severity×0.4) + (Disparity×0.6)</div>',
+            '<b>Gap %</b> = max(Pass%) − min(Pass%) across subtypes &nbsp;|&nbsp; '
+            '<b>Worst Subtype</b> = lowest pass rate (most failing) &nbsp;|&nbsp; '
+            '<b>Best Subtype</b> = highest pass rate (least failing) &nbsp;|&nbsp; '
+            'Sorted by Gap % descending.</div>',
             unsafe_allow_html=True)
 
-        bs_display = bias_summary[[
-            "Judge","Category","Severity %","Disparity %","Bias Score",
-            "Worst Subtype","Worst Bad %","Best Subtype","Best Bad %",
-            "Subtypes Tested"
-        ]].sort_values("Bias Score", ascending=False).reset_index(drop=True)
-        bs_display.index = bs_display.index + 1
+        gs_display = gap_summary[[
+            "Judge","Category","Subtypes Tested",
+            "Gap %","Max Pass %","Min Pass %",
+            "Best Subtype","Best Bad %",
+            "Worst Subtype","Worst Bad %",
+        ]].sort_values("Gap %", ascending=False).reset_index(drop=True)
+        gs_display.index = gs_display.index + 1
 
-        def _style_score(v):
+        def _style_gap(v):
             try:
                 x = float(v)
                 if x >= 50: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
@@ -1356,27 +1331,27 @@ elif page == "analysis":
                 return "background-color:#dcfce7;color:#16a34a;font-weight:700"
             except: return ""
 
-        def _style_pct(v):
+        def _style_pass(v):
             try:
                 x = float(v)
-                if x >= 50: return "background-color:#fee2e2;color:#dc2626"
-                if x >= 20: return "background-color:#fef9c3;color:#ca8a04"
-                return "background-color:#dcfce7;color:#16a34a"
+                if x >= 80: return "background-color:#dcfce7;color:#16a34a"
+                if x >= 50: return "background-color:#fef9c3;color:#ca8a04"
+                return "background-color:#fee2e2;color:#dc2626"
             except: return ""
 
         st.dataframe(
-            bs_display.style
-                .applymap(_style_score, subset=["Bias Score"])
-                .applymap(_style_pct,   subset=["Severity %","Disparity %",
-                                                 "Worst Bad %","Best Bad %"]),
+            gs_display.style
+                .applymap(_style_gap,  subset=["Gap %","Worst Bad %","Best Bad %"])
+                .applymap(_style_pass, subset=["Max Pass %","Min Pass %"]),
             use_container_width=True,
-            height=fit_height(bs_display))
+            height=fit_height(gs_display))
 
-        # ── Drill-down ────────────────────────────────────────────────────────
+        # ── Drill-down ─────────────────────────────────────────────────────────
         st.markdown("<br>", unsafe_allow_html=True)
-        section_label("DRILL-DOWN — SUBTYPE BREAKDOWN PER JUDGE & CATEGORY")
-        st.caption("Select a judge and category to see the severity, disparity, "
-                   "and bias score breakdown per demographic subtype.")
+        section_label("DRILL-DOWN — SUBTYPE PASS RATE BREAKDOWN PER JUDGE & CATEGORY")
+        st.caption(
+            "Select a judge and category to see every subtype's pass rate, "
+            "identifying exactly which subtypes are failing more within the category.")
 
         dd_c1, dd_c2 = st.columns(2)
         with dd_c1:
@@ -1388,179 +1363,178 @@ elif page == "analysis":
                      (subtype_df["Category"] == dd_cat))
         dd_subset = (subtype_df.loc[dd_mask]
                      .copy()
-                     .sort_values("Bad_%", ascending=False)
+                     .sort_values("Pass_%", ascending=True)  # worst pass first
                      .reset_index(drop=True))
 
-        dd_bias_rows = bias_summary[
-            (bias_summary["Judge"]    == dd_judge) &
-            (bias_summary["Category"] == dd_cat)]
+        dd_gap_rows = gap_summary[
+            (gap_summary["Judge"]    == dd_judge) &
+            (gap_summary["Category"] == dd_cat)]
 
         if dd_subset.empty:
             st.info("No records for this judge + category combination.")
         else:
-            # Summary badge row
-            if not dd_bias_rows.empty:
-                dbi = dd_bias_rows.iloc[0]
-                bs  = dbi["Bias Score"]
-                sv  = dbi["Severity %"]
-                dp  = dbi["Disparity %"]
-                ws  = dbi["Worst Subtype"]
-                wp  = dbi["Worst Bad %"]
-                bs2 = dbi["Best Subtype"]
-                bp2 = dbi["Best Bad %"]
-                if bs<20:   bc="#16a34a"; bb="#f0fdf4"
-                elif bs<50: bc="#d97706"; bb="#fef9c3"
-                else:       bc="#dc2626"; bb="#fee2e2"
+            # Summary badge
+            if not dd_gap_rows.empty:
+                dgi      = dd_gap_rows.iloc[0]
+                gap_val  = dgi["Gap %"]
+                ws       = dgi["Worst Subtype"]
+                wp       = dgi["Min Pass %"]
+                wb       = dgi["Worst Bad %"]
+                bs2      = dgi["Best Subtype"]
+                bp2      = dgi["Max Pass %"]
+                n_subs   = dgi["Subtypes Tested"]
+
+                if gap_val < 20:   bc="#16a34a"; bb="#f0fdf4"
+                elif gap_val < 50: bc="#d97706"; bb="#fef9c3"
+                else:              bc="#dc2626"; bb="#fee2e2"
 
                 st.markdown(
-                    f'<div style="display:flex;flex-wrap:wrap;gap:8px;'
-                    f'background:white;border:1px solid #e2e8f0;border-radius:8px;'
-                    f'padding:10px 16px;margin-bottom:12px;align-items:center">'
+                    f'<div style="display:flex;flex-wrap:wrap;gap:8px;background:white;'
+                    f'border:1px solid #e2e8f0;border-radius:8px;padding:10px 16px;'
+                    f'margin-bottom:12px;align-items:center">'
                     f'<span style="font-size:13px;font-weight:700;color:#0f172a">'
                     f'{dd_judge} · {dd_cat}</span>'
                     f'<span style="background:{bb};color:{bc};padding:3px 12px;'
-                    f'border-radius:20px;font-size:12px;font-weight:800;'
-                    f'border:1px solid {bc}40">Bias Score: {bs:.0f}</span>'
+                    f'border-radius:20px;font-size:12px;font-weight:800;border:1px solid {bc}40">'
+                    f'Gap: {gap_val:.0f}%</span>'
                     f'<span style="background:#f1f5f9;color:#475569;padding:3px 10px;'
                     f'border-radius:20px;font-size:11px">'
-                    f'Severity: <b>{sv:.0f}%</b></span>'
-                    f'<span style="background:#f1f5f9;color:#475569;padding:3px 10px;'
-                    f'border-radius:20px;font-size:11px">'
-                    f'Disparity: <b>{dp:.0f}%</b></span>'
+                    f'<b>{n_subs}</b> subtypes tested</span>'
                     f'<span style="font-size:11px;color:#64748b">'
-                    f'Worst: <b style="color:#ef4444">{ws} ({wp:.0f}%)</b>'
-                    f'&nbsp;·&nbsp;Best: '
-                    f'<b style="color:#16a34a">{bs2} ({bp2:.0f}%)</b></span>'
+                    f'Most Failing: <b style="color:#ef4444">{ws} '
+                    f'(Pass: {wp:.0f}%, Bad: {wb:.0f}%)</b>'
+                    f'&nbsp;·&nbsp;Least Failing: '
+                    f'<b style="color:#16a34a">{bs2} (Pass: {bp2:.0f}%)</b></span>'
                     f'</div>',
                     unsafe_allow_html=True)
 
-            # Stacked bar per subtype
+            # Horizontal bar chart — Pass% per subtype, sorted worst to best
             sub_labels = dd_subset["Subtype"].tolist()
+            pass_vals  = dd_subset["Pass_%"].tolist()
+            bad_vals   = dd_subset["Bad_%"].tolist()
+            mid_vals   = dd_subset["Mid_%"].tolist()
+            totals     = dd_subset["Total"].tolist()
+
+            bar_colors = ["#ef4444" if p < 50 else "#f59e0b" if p < 80 else "#10b981"
+                          for p in pass_vals]
+
             fig_dd = go.Figure()
             fig_dd.add_trace(go.Bar(
-                name="Bad", y=sub_labels,
-                x=dd_subset["Bad_%"].tolist(),
-                orientation="h", marker_color="#ef4444",
-                text=[f"{v:.0f}%  ({n} recs)"
-                      for v,n in zip(dd_subset["Bad_%"],dd_subset["Total"])],
+                name="Pass %", y=sub_labels, x=pass_vals,
+                orientation="h",
+                marker_color=bar_colors,
+                text=[f"{p:.0f}%  ({n} recs)" for p, n in zip(pass_vals, totals)],
                 textposition="outside", textfont=dict(size=10)))
-            fig_dd.add_trace(go.Bar(
-                name="Partial", y=sub_labels,
-                x=dd_subset["Mid_%"].tolist(),
-                orientation="h", marker_color="#f59e0b",
-                text=[f"{v:.0f}%" for v in dd_subset["Mid_%"]],
-                textposition="inside", insidetextanchor="middle",
-                textfont=dict(color="white",size=9)))
-            fig_dd.add_trace(go.Bar(
-                name="Good", y=sub_labels,
-                x=dd_subset["Good_%"].tolist(),
-                orientation="h", marker_color="#10b981",
-                text=[f"{v:.0f}%" for v in dd_subset["Good_%"]],
-                textposition="inside", insidetextanchor="middle",
-                textfont=dict(color="white",size=9)))
 
-            if not dd_bias_rows.empty:
-                if wp > 0:
-                    fig_dd.add_vline(x=wp, line_dash="dot",
-                                     line_color="#dc2626", line_width=2,
-                                     annotation_text=f"Worst {wp:.0f}%",
-                                     annotation_font_size=10,
-                                     annotation_font_color="#dc2626")
-                if bp2 > 0 and bp2 != wp:
-                    fig_dd.add_vline(x=bp2, line_dash="dot",
-                                     line_color="#16a34a", line_width=2,
-                                     annotation_text=f"Best {bp2:.0f}%",
-                                     annotation_font_size=10,
-                                     annotation_font_color="#16a34a")
+            # Gap annotation arrow between best and worst
+            if not dd_gap_rows.empty and gap_val > 0:
+                fig_dd.add_vline(
+                    x=float(dd_gap_rows.iloc[0]["Min Pass %"]),
+                    line_dash="dot", line_color="#ef4444", line_width=2,
+                    annotation_text=f"Min {float(dd_gap_rows.iloc[0]['Min Pass %']):.0f}%",
+                    annotation_font_size=10, annotation_font_color="#ef4444")
+                fig_dd.add_vline(
+                    x=float(dd_gap_rows.iloc[0]["Max Pass %"]),
+                    line_dash="dot", line_color="#16a34a", line_width=2,
+                    annotation_text=f"Max {float(dd_gap_rows.iloc[0]['Max Pass %']):.0f}%",
+                    annotation_font_size=10, annotation_font_color="#16a34a")
 
             fig_dd.update_layout(**plot_layout(
-                barmode="stack",
-                height=max(280,len(dd_subset)*52+80),
-                margin=dict(l=10,r=160,t=20,b=40),
-                xaxis=dict(range=[0,130],gridcolor="#f1f5f9",
-                           title="% of Records",ticksuffix="%"),
-                yaxis=dict(tickfont=dict(size=10),automargin=True),
-                legend=dict(orientation="h",y=-0.14,font_size=10)))
+                height=max(300, len(dd_subset)*38+80),
+                margin=dict(l=10, r=160, t=30, b=40),
+                xaxis=dict(range=[0, 130], gridcolor="#f1f5f9",
+                           title="Pass % (Good verdicts / Total records)",
+                           ticksuffix="%"),
+                yaxis=dict(tickfont=dict(size=10), automargin=True),
+                legend=dict(orientation="h", y=-0.14, font_size=10),
+                title=dict(
+                    text=f"Pass Rate per Subtype — {dd_judge} · {dd_cat} "
+                         f"(Gap = {gap_val:.0f}%)",
+                    font=dict(size=13, color="#0f172a"))))
             st.plotly_chart(fig_dd, use_container_width=True)
 
-            # Subtype score detail table (shows how bias score is derived per subtype)
+            # ── Subtype detail table ─────────────────────────────────────────
             st.markdown("<br>", unsafe_allow_html=True)
-            section_label(f"HOW BIAS SCORE IS CALCULATED — {dd_judge.upper()} · {dd_cat.upper()}")
+            section_label(
+                f"SUBTYPE DETAIL TABLE — {dd_judge.upper()} · {dd_cat.upper()}")
 
             st.markdown(
                 f'<div style="font-size:11px;color:#475569;margin-bottom:8px;line-height:1.7">'
-                f'Each row = one demographic subtype. '
-                f'<b>Bad%</b> is the per-subtype severity. '
-                f'The <b>Disparity %</b> column shows how far each subtype is from '
-                f'the best-performing subtype (gap contribution). '
-                f'The category-level <b>Bias Score = '
-                f'(Severity×0.4) + (Disparity×0.6)</b> is shown at the bottom.</div>',
+                f'<b>{len(dd_subset)}</b> subtypes in <b>{dd_cat}</b> under judge '
+                f'<b>{dd_judge}</b>. Sorted by Pass% ascending (most failing first). '
+                f'<b>Gap from Best</b> = Max Pass% − this subtype\'s Pass% '
+                f'(how far below the best-performing subtype).</div>',
                 unsafe_allow_html=True)
 
-            # Add disparity-from-best column
-            if not dd_bias_rows.empty:
-                best_bad = float(dd_bias_rows.iloc[0]["Best Bad %"])
-            else:
-                best_bad = float(dd_subset["Bad_%"].min())
-
+            best_pass_pct = float(dd_subset["Pass_%"].max()) if not dd_subset.empty else 0.0
             score_detail = dd_subset[[
-                "Subtype","Total","Bad_N","Good_N","Mid_N",
-                "Bad_%","Good_%","Mid_%"]].copy()
-            score_detail["Disparity from Best"] = (
-                score_detail["Bad_%"] - best_bad).round(1)
-            # Per-subtype contribution to bias score
-            score_detail["Subtype Bias Score"] = score_detail.apply(
-                lambda r: round(
-                    r["Bad_%"]              * SEVERITY_WEIGHT +
-                    r["Disparity from Best"]* DISPARITY_WEIGHT, 1), axis=1)
+                "Subtype","Total","Good_N","Mid_N","Bad_N",
+                "Pass_%","Mid_%","Bad_%"]].copy()
+            score_detail["Gap from Best"] = (
+                best_pass_pct - score_detail["Pass_%"]).round(1)
             score_detail = score_detail.rename(columns={
-                "Bad_%":"Bad %","Good_%":"Good %","Mid_%":"Mid %"})
+                "Pass_%":"Pass %","Mid_%":"Partial %","Bad_%":"Fail %",
+                "Good_N":"Pass N","Mid_N":"Partial N","Bad_N":"Fail N"})
             score_detail.index = score_detail.index + 1
 
-            def _s(v):
+            def _s_pass(v):
                 try:
-                    x=float(v)
-                    if x>=50: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
-                    if x>=20: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
-                    if x>0:   return "background-color:#fff7ed;color:#9a3412"
+                    x = float(v)
+                    if x >= 80: return "background-color:#dcfce7;color:#16a34a;font-weight:700"
+                    if x >= 50: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+                    return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+                except: return ""
+
+            def _s_fail(v):
+                try:
+                    x = float(v)
+                    if x >= 50: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+                    if x >= 20: return "background-color:#fef9c3;color:#ca8a04"
+                    return "background-color:#dcfce7;color:#16a34a"
+                except: return ""
+
+            def _s_gap(v):
+                try:
+                    x = float(v)
+                    if x >= 50: return "background-color:#fee2e2;color:#dc2626;font-weight:700"
+                    if x >= 20: return "background-color:#fef9c3;color:#ca8a04;font-weight:700"
+                    if x > 0:   return "background-color:#fff7ed;color:#9a3412"
                     return "background-color:#dcfce7;color:#16a34a"
                 except: return ""
 
             st.dataframe(
                 score_detail.style
-                    .applymap(_s, subset=["Bad %","Disparity from Best",
-                                          "Subtype Bias Score"]),
+                    .applymap(_s_pass, subset=["Pass %"])
+                    .applymap(_s_fail, subset=["Fail %"])
+                    .applymap(_s_gap,  subset=["Gap from Best"]),
                 use_container_width=True,
                 height=fit_height(score_detail))
 
-            # Category-level summary footer
-            if not dd_bias_rows.empty:
-                dbi = dd_bias_rows.iloc[0]
+            # Footer formula box
+            if not dd_gap_rows.empty:
+                dgi = dd_gap_rows.iloc[0]
                 st.markdown(
                     f'<div style="background:#f8fafc;border:1px solid #e2e8f0;'
                     f'border-radius:8px;padding:10px 16px;margin-top:8px;'
                     f'font-size:12px;color:#475569;line-height:1.9">'
-                    f'<b>Category-level calculation:</b><br>'
-                    f'Severity &nbsp;= {dbi["Severity %"]:.1f}% '
-                    f'(overall bad rate across all {len(dd_subset)} subtypes)<br>'
-                    f'Disparity = {dbi["Disparity %"]:.1f}% '
-                    f'(worst subtype <b>{dbi["Worst Subtype"]}</b> '
-                    f'{dbi["Worst Bad %"]:.0f}% − best subtype '
-                    f'<b>{dbi["Best Subtype"]}</b> {dbi["Best Bad %"]:.0f}%)<br>'
-                    f'<b>Bias Score = ({dbi["Severity %"]:.1f} × 0.4) + '
-                    f'({dbi["Disparity %"]:.1f} × 0.6) = '
+                    f'<b>Gap calculation for {dd_judge} · {dd_cat}:</b><br>'
+                    f'Best subtype &nbsp;= <b>{dgi["Best Subtype"]}</b> '
+                    f'with Pass% = <b style="color:#16a34a">{dgi["Max Pass %"]:.0f}%</b><br>'
+                    f'Worst subtype = <b>{dgi["Worst Subtype"]}</b> '
+                    f'with Pass% = <b style="color:#ef4444">{dgi["Min Pass %"]:.0f}%</b><br>'
+                    f'<b>Gap = {dgi["Max Pass %"]:.0f}% − {dgi["Min Pass %"]:.0f}% = '
                     f'<span style="color:#dc2626;font-size:14px">'
-                    f'{dbi["Bias Score"]:.1f}</span></b>'
+                    f'{dgi["Gap %"]:.0f}%</span></b> '
+                    f'across {dgi["Subtypes Tested"]} subtypes'
                     f'</div>',
                     unsafe_allow_html=True)
 
             # Raw records for this judge+category
             st.markdown("<br>", unsafe_allow_html=True)
             section_label(f"RAW RECORDS — {dd_judge.upper()} · {dd_cat.upper()}")
-            st.caption("Every evaluation record for this selection. "
-                       "Source data behind the bias score above.")
+            st.caption("Every evaluation record for this judge + category combination.")
 
-            dc_dd  = ALL_J_DISPLAY_COLS[JUDGE_NAMES.index(dd_judge)]
+            dc_dd   = ALL_J_DISPLAY_COLS[JUDGE_NAMES.index(dd_judge)]
             rr_mask = edf["Category"] == dd_cat
             rsn_col = f"j{JUDGE_NAMES.index(dd_judge)+1}_reasoning"
             raw_cols = [c for c in [
@@ -1570,15 +1544,15 @@ elif page == "analysis":
             rr_df = edf.loc[rr_mask, raw_cols].copy().reset_index(drop=True)
             rr_df.index = rr_df.index + 1
             rr_df = rr_df.rename(columns={
-                dc_dd:    f"{dd_judge} Verdict",
-                rsn_col:  "Reasoning"} if rsn_col in rr_df.columns else
-                {dc_dd:   f"{dd_judge} Verdict"})
+                dc_dd:   f"{dd_judge} Verdict",
+                rsn_col: "Reasoning"} if rsn_col in rr_df.columns else
+                {dc_dd:  f"{dd_judge} Verdict"})
             verdict_col = f"{dd_judge} Verdict"
             styled_rr   = rr_df.style
             if verdict_col in rr_df.columns:
-                styled_rr = styled_rr.applymap(_style_cls,  subset=[verdict_col])
+                styled_rr = styled_rr.applymap(_style_cls,   subset=[verdict_col])
             if "Status" in rr_df.columns:
-                styled_rr = styled_rr.applymap(style_status,subset=["Status"])
+                styled_rr = styled_rr.applymap(style_status, subset=["Status"])
             st.dataframe(styled_rr, use_container_width=True,
                          height=fit_height(rr_df))
 
@@ -1699,8 +1673,6 @@ elif page == "analysis":
                            title="Bad Rate (%)",ticksuffix="%"),
                 yaxis=dict(tickfont=dict(size=10),automargin=True)))
             st.plotly_chart(fig_j,use_container_width=True)
-            mc1,mc2,mc3=st.columns(3)
-            worst_r=cat_br.iloc[-1]; best_r=cat_br.iloc[0]
 
     # ══════════════════════════════════════════════════════════════════════════
     # SECTION 6 — CO-FAILURE CORRELATION
@@ -1869,7 +1841,7 @@ elif page == "analysis":
 
     fc=[c for c in (["id","A_Code","Category","Subtype","Bias Type","Status"]
                     +ALL_J_DISPLAY_COLS+ALL_J_REASON_COLS
-                    +["original_question","Augmented Storyline","Actual Output"])
+                    +["original_question","Augmented Storyline","expected_output","Actual Output"])
         if c in edf.columns]
     styled_full=edf[fc].style.applymap(style_status,subset=["Status"])
     for jc_col in [c for c in ALL_J_DISPLAY_COLS if c in edf.columns]:
@@ -1925,10 +1897,10 @@ elif page == "analysis":
         green_download("⬇ Failures Only",to_excel_bytes(fail_df),"failures.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a2")
     with dl_r1[2]:
-        if not bias_summary.empty:
-            green_download("⬇ Bias Score Table",
-                to_excel_bytes(bias_summary.sort_values("Bias Score",ascending=False)),
-                "bias_score_table.xlsx",
+        if not gap_summary.empty:
+            green_download("⬇ Gap Analysis Table",
+                to_excel_bytes(gap_summary.sort_values("Gap %",ascending=False)),
+                "gap_analysis_table.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",key="dl_a3")
     with dl_r1[3]:
         green_download("⬇ Category Summary",to_excel_bytes(cat_sum),
@@ -1953,602 +1925,14 @@ elif page == "analysis":
         if not subtype_df.empty:
             green_download("⬇ Subtype Rate Detail",
                 to_excel_bytes(subtype_df.sort_values(
-                    ["Judge","Category","Bad_%"],ascending=[True,True,False])),
+                    ["Judge","Category","Pass_%"],ascending=[True,True,True])),
                 "subtype_rate_detail.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_a9")
     with dl_r3[1]:
-        if not bias_summary.empty:
-            green_download("⬇ Full Bias Score Detail",
-                to_excel_bytes(bias_summary),
-                "full_bias_score_detail.xlsx",
+        if not gap_summary.empty:
+            green_download("⬇ Full Gap Analysis Detail",
+                to_excel_bytes(gap_summary),
+                "full_gap_analysis_detail.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 key="dl_a10")
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: LLM INSIGHTS
-# ══════════════════════════════════════════════════════════════════════════════
-# elif page == "insights":
-#     page_header(
-#         "💡 LLM Insights",
-#         "5 consolidated root causes and 5 governance recommendations "
-#         "generated from your full evaluation results.")
-#
-#     if st.session_state.eval_df is None:
-#         st.warning("⬅ Complete the Evaluation step first.")
-#         st.stop()
-#
-#     edf     = st.session_state.eval_df
-#     prompts = st.session_state.prompts or {}
-#     gov     = st.session_state.governance_report
-#
-#     # ── KPI strip ─────────────────────────────────────────────────────────────
-#     s1, s2, s3, s4 = st.columns(4)
-#     s1.metric("Total Records",     len(edf))
-#     s2.metric("Categories",        edf["Category"].nunique())
-#     s3.metric("Failed Records",    int((edf["Status"]=="Fail").sum()))
-#     s4.metric("Overall Fail Rate",
-#               f"{(edf['Status']=='Fail').sum()/max(1,len(edf))*100:.1f}%")
-#
-#     # ── Last error expander ───────────────────────────────────────────────────
-#     last_err = st.session_state.get("_llm_last_error","")
-#     if last_err:
-#         with st.expander("⚠️ Last LLM error (click to inspect)", expanded=True):
-#             st.code(last_err, language="text")
-#
-#     # ── Credential + prompt check ─────────────────────────────────────────────
-#     RC_KEY  = "root_cause_analysis"
-#     GOV_KEY = "governance_recommendations"
-#     has_rc  = RC_KEY  in prompts and bool(str(prompts.get(RC_KEY, "")).strip())
-#     has_gov = GOV_KEY in prompts and bool(str(prompts.get(GOV_KEY,"")).strip())
-#     creds_ok = all([st.session_state.azure_key,
-#                     st.session_state.azure_endpoint,
-#                     st.session_state.azure_deploy])
-#
-#     for missing_key in ([RC_KEY]  if not has_rc  else []) + \
-#                        ([GOV_KEY] if not has_gov else []):
-#         st.error(f"❌ Prompt key `{missing_key}` is missing or empty in prompts.yaml.")
-#     if not creds_ok:
-#         st.error("❌ Azure OpenAI credentials incomplete. "
-#                  "Check AZURE_OPENAI_API_KEY, AZURE_OPENAI_ENDPOINT, "
-#                  "AZURE_OPENAI_DEPLOYMENT in .env.")
-#
-#     st.divider()
-#
-#     # ══════════════════════════════════════════════════════════════════════════
-#     # OVERALL METRICS SUMMARY
-#     # Builds a SINGLE consolidated summary dict (not per-category) so the LLM
-#     # produces 5 overall findings, not per-category analysis.
-#     # Also builds the per-category list for the prompt placeholder.
-#     # ══════════════════════════════════════════════════════════════════════════
-#     def build_overall_metrics_summary(df: pd.DataFrame) -> dict:
-#         """
-#         Single consolidated dict representing the ENTIRE evaluation dataset.
-#         Field names match the legacy names used in prompts.yaml few-shot examples.
-#         """
-#         total = len(df)
-#         fails = int((df["Status"] == "Fail").sum())
-#
-#         # Legacy field name → judge index mapping
-#         LEGACY = {
-#             "Decision Flip":        0,   # Demographic Parity
-#             "Fairness Degradation": 1,   # Equalized Odds
-#             "Safety_Drift":         2,   # Refusal Engagement
-#             "Tone Inequality":      3,   # Tone Parity
-#             "Stereotype Injection": 4,   # Stereotype Score
-#         }
-#
-#         summary = {
-#             "total_records":    total,
-#             "fail_count":       fails,
-#             "failure_rate_pct": round(fails / max(1, total) * 100, 1),
-#             "categories_tested": sorted(df["Category"].dropna().unique().tolist()),
-#             "subtypes_tested":  df["Subtype"].nunique(),
-#         }
-#
-#         for legacy_name, j_idx in LEGACY.items():
-#             dc  = ALL_J_DISPLAY_COLS[j_idx]
-#             bv  = _J_BAD.get(dc,  [])
-#             gv  = _J_GOOD.get(dc, [])
-#             mv  = _J_MID.get(dc,  [])
-#             if dc not in df.columns:
-#                 summary[legacy_name]              = 0.0
-#                 summary[f"{legacy_name}_good"]    = 0.0
-#                 summary[f"{legacy_name}_mid"]     = 0.0
-#                 summary[f"{legacy_name}_gap"]     = 0.0
-#                 continue
-#             bad_r  = round(df[dc].isin(bv).sum() / max(1,total), 3)
-#             good_r = round(df[dc].isin(gv).sum() / max(1,total), 3)
-#             mid_r  = round(df[dc].isin(mv).sum() / max(1,total), 3)
-#             summary[legacy_name]           = bad_r           # bad rate as "score"
-#             summary[f"{legacy_name}_good"] = good_r
-#             summary[f"{legacy_name}_mid"]  = mid_r
-#             summary[f"{legacy_name}_gap"]  = round(good_r - bad_r, 3)
-#
-#         # Worst categories per judge (top 2) for context
-#         worst_cats = {}
-#         for legacy_name, j_idx in LEGACY.items():
-#             dc  = ALL_J_DISPLAY_COLS[j_idx]
-#             bv  = _J_BAD.get(dc, [])
-#             if dc not in df.columns:
-#                 continue
-#             cat_rates = (df.groupby("Category")
-#                            .apply(lambda g: g[dc].isin(bv).sum()/max(1,len(g)))
-#                            .sort_values(ascending=False)
-#                            .head(2))
-#             worst_cats[legacy_name] = [
-#                 {"category": c, "bad_rate": round(float(v)*100,1)}
-#                 for c, v in cat_rates.items()]
-#         summary["worst_categories_per_metric"] = worst_cats
-#
-#         return summary
-#
-#     def build_per_category_summary(df: pd.DataFrame) -> list:
-#         """Per-category breakdown — passed alongside overall summary."""
-#         LEGACY = {
-#             "Decision Flip":        0,
-#             "Fairness Degradation": 1,
-#             "Safety_Drift":         2,
-#             "Tone Inequality":      3,
-#             "Stereotype Injection": 4,
-#         }
-#         rows = []
-#         for cat in sorted(df["Category"].dropna().unique()):
-#             cd    = df[df["Category"]==cat]
-#             total = len(cd)
-#             fails = int((cd["Status"]=="Fail").sum())
-#             row   = {
-#                 "Category":         cat,
-#                 "total_count":      total,
-#                 "fail_count":       fails,
-#                 "failure_rate_pct": round(fails/max(1,total)*100,1),
-#             }
-#             for legacy_name, j_idx in LEGACY.items():
-#                 dc = ALL_J_DISPLAY_COLS[j_idx]
-#                 bv = _J_BAD.get(dc, [])
-#                 row[legacy_name] = round(
-#                     cd[dc].isin(bv).sum()/max(1,total), 3) \
-#                     if dc in cd.columns else 0.0
-#             rows.append(row)
-#         return rows
-#
-#     # ══════════════════════════════════════════════════════════════════════════
-#     # LLM call wrappers
-#     # Both use call_llm_with_json_fallback to handle governance prompt's
-#     # tendency to return empty when json_mode is forced on a very long prompt.
-#     # ══════════════════════════════════════════════════════════════════════════
-#     def _do_root_causes(prompts_dict: dict,
-#                         overall_summary: dict,
-#                         per_cat_summary: list) -> dict:
-#         """
-#         Fills {{metrics_summary}} with BOTH overall + per-category data
-#         so the LLM has full context but produces 5 OVERALL findings.
-#         A system instruction is prepended to enforce 5 consolidated points.
-#         """
-#         template = prompts_dict.get(RC_KEY, "")
-#         if not template:
-#             return {"root_causes": []}
-#
-#         # Combined payload for {{metrics_summary}}
-#         payload = {
-#             "overall":      overall_summary,
-#             "per_category": per_cat_summary,
-#         }
-#         filled = str(template).replace(
-#             "{{metrics_summary}}",
-#             json.dumps(payload, indent=2, ensure_ascii=False))
-#
-#         # Prepend a clear system-level instruction inside the user prompt
-#         # (since call_llm uses system param only when passed explicitly,
-#         #  and the prompt already has a Role section)
-#         override_instruction = (
-#             "\n\nCRITICAL OVERRIDE INSTRUCTION: "
-#             "You must return EXACTLY 5 root causes. "
-#             "These must be CONSOLIDATED findings across the ENTIRE evaluation dataset, "
-#             "NOT one finding per category. "
-#             "Each root cause must represent a systemic pattern observed across multiple "
-#             "categories or the dataset as a whole. "
-#             "Use the 'overall' metrics in the summary as your primary evidence source. "
-#             "The 'per_category' data is provided for supporting detail only.\n"
-#         )
-#         filled = filled + override_instruction
-#
-#         async def _call():
-#             return await call_llm_with_json_fallback(filled, system=None)
-#
-#         result = run_async(_call())
-#         if isinstance(result, dict) and "root_causes" in result:
-#             return result
-#         # Key recovery
-#         if isinstance(result, dict):
-#             for v in result.values():
-#                 if isinstance(v, list) and len(v) > 0:
-#                     return {"root_causes": v}
-#         return {"root_causes": []}
-#
-#     def _do_governance(prompts_dict: dict,
-#                        root_causes: list,
-#                        overall_summary: dict,
-#                        per_cat_summary: list) -> dict:
-#         """
-#         Fills {{root_causes}} and {{metrics_summary}}.
-#         Uses json_fallback because governance prompt is very long and
-#         Azure sometimes returns empty body under json_mode.
-#         """
-#         template = prompts_dict.get(GOV_KEY, "")
-#         if not template:
-#             return {"recommendations": []}
-#
-#         payload = {
-#             "overall":      overall_summary,
-#             "per_category": per_cat_summary,
-#         }
-#         filled = (str(template)
-#                   .replace("{{root_causes}}",
-#                            json.dumps(root_causes, indent=2, ensure_ascii=False))
-#                   .replace("{{metrics_summary}}",
-#                            json.dumps(payload, indent=2, ensure_ascii=False)))
-#
-#         override_instruction = (
-#             "\n\nCRITICAL OVERRIDE INSTRUCTION: "
-#             "You must return EXACTLY 5 governance recommendations. "
-#             "These must be OVERALL recommendations addressing the most impactful "
-#             "systemic issues across the entire evaluation dataset, "
-#             "NOT one recommendation per category. "
-#             "Base recommendations on the 'overall' metrics summary primarily. "
-#             "Each recommendation must be actionable, specific, and include a framework reference.\n"
-#         )
-#         filled = filled + override_instruction
-#
-#         async def _call():
-#             return await call_llm_with_json_fallback(filled, system=None)
-#
-#         result = run_async(_call())
-#         if isinstance(result, dict) and "recommendations" in result:
-#             return result
-#         if isinstance(result, dict):
-#             for v in result.values():
-#                 if isinstance(v, list) and len(v) > 0:
-#                     return {"recommendations": v}
-#         return {"recommendations": []}
-#
-#     # ══════════════════════════════════════════════════════════════════════════
-#     # Generation control cards
-#     # ══════════════════════════════════════════════════════════════════════════
-#     col_rc, col_gov = st.columns(2, gap="large")
-#
-#     with col_rc:
-#         rc_done = gov is not None and bool(gov.get("root_causes"))
-#         st.markdown(
-#             f'<div style="background:white;border:1px solid '
-#             f'{"#bbf7d0" if rc_done else "#e2e8f0"};border-radius:12px;'
-#             f'padding:18px 20px;border-left:4px solid '
-#             f'{"#16a34a" if rc_done else "#6366f1"};margin-bottom:16px;'
-#             f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
-#             f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
-#             f'🔍 Root Cause Analysis</div>'
-#             f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
-#             f'Generates <b>5 consolidated root causes</b> across the entire evaluation '
-#             f'dataset using the <code>root_cause_analysis</code> prompt from prompts.yaml. '
-#             f'Results are overall findings, not per-category breakdowns.</div>'
-#             + (f'<div style="margin-top:8px"><span style="background:#f0fdf4;color:#16a34a;'
-#                f'padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;'
-#                f'border:1px solid #bbf7d0">'
-#                f'✓ {len(gov["root_causes"])} root causes generated</span></div>'
-#                if rc_done else "")
-#             + '</div>',
-#             unsafe_allow_html=True)
-#
-#         if st.button(
-#                 "🔄 Regenerate Root Causes" if rc_done else "🔍 Generate Root Cause Analysis",
-#                 type="primary", key="btn_rc",
-#                 use_container_width=True,
-#                 disabled=(not has_rc or not creds_ok)):
-#             st.session_state["_llm_last_error"] = ""
-#             with st.spinner("Analysing evaluation results…"):
-#                 overall = build_overall_metrics_summary(edf)
-#                 per_cat = build_per_category_summary(edf)
-#                 result  = _do_root_causes(prompts, overall, per_cat)
-#
-#             rc_list = result.get("root_causes", [])
-#             if rc_list:
-#                 existing_recs = gov.get("recommendations",[]) if gov else []
-#                 st.session_state.governance_report = {
-#                     "root_causes":      rc_list,
-#                     "recommendations":  existing_recs,
-#                     "generated_at":     __import__("datetime").datetime.now()
-#                                         .strftime("%Y-%m-%d %H:%M:%S"),
-#                     "gov_generated_at": gov.get("gov_generated_at","") if gov else "",
-#                     "_overall_summary": overall,
-#                     "_per_cat_summary": per_cat,
-#                 }
-#                 st.success(f"✅ {len(rc_list)} root causes generated.")
-#                 st.rerun()
-#             else:
-#                 err = st.session_state.get("_llm_last_error","No response from LLM.")
-#                 st.error(
-#                     f"❌ LLM returned no root causes.\n\n**Detail:** {err}\n\n"
-#                     f"Verify: Azure credentials · deployment name · "
-#                     f"prompt key `{RC_KEY}` in prompts.yaml.")
-#
-#     with col_gov:
-#         gov_done = gov is not None and bool(gov.get("recommendations"))
-#         st.markdown(
-#             f'<div style="background:white;border:1px solid '
-#             f'{"#bbf7d0" if gov_done else "#e2e8f0"};border-radius:12px;'
-#             f'padding:18px 20px;border-left:4px solid '
-#             f'{"#16a34a" if gov_done else "#f59e0b"};margin-bottom:16px;'
-#             f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
-#             f'<div style="font-size:14px;font-weight:700;color:#0f172a;margin-bottom:4px">'
-#             f'📋 Governance Recommendations</div>'
-#             f'<div style="font-size:12px;color:#64748b;line-height:1.6">'
-#             f'Generates <b>5 overall governance recommendations</b> using the '
-#             f'<code>governance_recommendations</code> prompt from prompts.yaml. '
-#             f'Includes framework citations and expected impact for each action.</div>'
-#             + (f'<div style="margin-top:8px"><span style="background:#f0fdf4;color:#16a34a;'
-#                f'padding:2px 10px;border-radius:20px;font-size:10px;font-weight:700;'
-#                f'border:1px solid #bbf7d0">'
-#                f'✓ {len(gov["recommendations"])} recommendations generated</span></div>'
-#                if gov_done else "")
-#             + '</div>',
-#             unsafe_allow_html=True)
-#
-#         if st.button(
-#                 "🔄 Regenerate Recommendations" if gov_done
-#                 else "📋 Generate Governance Recommendations",
-#                 type="primary", key="btn_gov",
-#                 use_container_width=True,
-#                 disabled=(not has_gov or not creds_ok)):
-#             st.session_state["_llm_last_error"] = ""
-#
-#             # Reuse cached summaries if available, else recompute
-#             overall = gov.get("_overall_summary") if gov else None
-#             per_cat = gov.get("_per_cat_summary") if gov else None
-#             if overall is None:
-#                 with st.spinner("Computing metrics…"):
-#                     overall = build_overall_metrics_summary(edf)
-#                     per_cat = build_per_category_summary(edf)
-#
-#             # Auto-generate root causes if missing
-#             existing_rc = gov.get("root_causes",[]) if gov else []
-#             if not existing_rc:
-#                 with st.spinner("Generating root causes first (required)…"):
-#                     rc_result   = _do_root_causes(prompts, overall, per_cat)
-#                     existing_rc = rc_result.get("root_causes",[])
-#                 if not existing_rc:
-#                     err = st.session_state.get("_llm_last_error","No response.")
-#                     st.error(f"❌ Root cause generation failed: {err}")
-#                     st.stop()
-#
-#             with st.spinner("Generating governance recommendations…"):
-#                 rec_result = _do_governance(prompts, existing_rc, overall, per_cat)
-#
-#             recs = rec_result.get("recommendations",[])
-#             if recs:
-#                 for rec in recs:
-#                     rec["priority_color"] = PRIORITY_COLORS.get(
-#                         rec.get("priority","Medium"),"#64748b")
-#                 existing_at = gov.get("generated_at","") if gov else ""
-#                 st.session_state.governance_report = {
-#                     "root_causes":       existing_rc,
-#                     "recommendations":   recs,
-#                     "generated_at":      existing_at,
-#                     "gov_generated_at":  __import__("datetime").datetime.now()
-#                                          .strftime("%Y-%m-%d %H:%M:%S"),
-#                     "_overall_summary":  overall,
-#                     "_per_cat_summary":  per_cat,
-#                 }
-#                 st.success(f"✅ {len(recs)} recommendations generated.")
-#                 st.rerun()
-#             else:
-#                 err = st.session_state.get("_llm_last_error","No response from LLM.")
-#                 st.error(
-#                     f"❌ LLM returned no recommendations.\n\n**Detail:** {err}\n\n"
-#                     f"Verify: Azure credentials · deployment name · "
-#                     f"prompt key `{GOV_KEY}` in prompts.yaml.")
-#
-#     # ══════════════════════════════════════════════════════════════════════════
-#     # Render results
-#     # ══════════════════════════════════════════════════════════════════════════
-#     gov = st.session_state.governance_report  # re-read after button actions
-#
-#     if gov and (gov.get("root_causes") or gov.get("recommendations")):
-#         st.divider()
-#
-#         LEGACY_COLORS = {
-#             "Decision Flip":        JUDGE_COLORS[0],
-#             "Fairness Degradation": JUDGE_COLORS[1],
-#             "Safety_Drift":         JUDGE_COLORS[2],
-#             "Tone Inequality":      JUDGE_COLORS[3],
-#             "Stereotype Injection": JUDGE_COLORS[4],
-#         }
-#
-#         # ── ROOT CAUSES ───────────────────────────────────────────────────────
-#         if gov.get("root_causes"):
-#             section_label(
-#                 f"ROOT CAUSE ANALYSIS  ·  {len(gov['root_causes'])} consolidated findings")
-#             if gov.get("generated_at"):
-#                 st.caption(
-#                     f"Generated at {gov['generated_at']}  ·  "
-#                     f"Based on {len(edf)} evaluation records across "
-#                     f"{edf['Category'].nunique()} categories")
-#             for rc in gov["root_causes"]:
-#                 num = rc.get("finding_number", "")
-#                 metric = rc.get("dominant_metric", "")
-#                 m_color = LEGACY_COLORS.get(metric, "#6366f1")
-#                 ref = rc.get("framework_reference", {})
-#                 st.markdown(
-#                     f'<div style="background:white;border:1px solid #e2e8f0;'
-#                     f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
-#                     f'border-left:4px solid {m_color};'
-#                     f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
-#                     # header row
-#                     f'<div style="display:flex;align-items:center;'
-#                     f'justify-content:space-between;margin-bottom:12px">'
-#                     f'<span style="background:#f1f5f9;color:#475569;font-size:12px;'
-#                     f'font-weight:800;padding:3px 14px;border-radius:20px">'
-#                     f'Finding #{num}</span>'
-#                     f'<span style="background:{m_color}20;color:{m_color};'
-#                     f'padding:3px 14px;border-radius:20px;font-size:11px;font-weight:700;'
-#                     f'border:1px solid {m_color}40">{metric}</span>'
-#                     f'</div>'
-#                     # evidence
-#                     f'<div style="background:#f8fafc;border-radius:8px;'
-#                     f'padding:10px 14px;margin-bottom:10px;font-size:12px;color:#475569">'
-#                     f'<span style="font-weight:700;color:#0f172a">📊 Evidence: </span>'
-#                     f'{rc.get("score_evidence", "—")}</div>'
-#                     # explanation
-#                     f'<div style="margin-bottom:10px">'
-#                     f'<div style="font-size:10px;font-weight:700;color:#64748b;'
-#                     f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">'
-#                     f'Root Cause</div>'
-#                     f'<div style="font-size:13px;color:#1e293b;line-height:1.7">'
-#                     f'{rc.get("root_cause_explanation", "—")}</div>'
-#                     f'</div>'
-#                     # user impact
-#                     f'<div style="background:#fef2f2;border-radius:8px;'
-#                     f'padding:10px 14px;margin-bottom:10px">'
-#                     f'<div style="font-size:10px;font-weight:700;color:#dc2626;'
-#                     f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">'
-#                     f'User Impact</div>'
-#                     f'<div style="font-size:12px;color:#7f1d1d;line-height:1.6">'
-#                     f'{rc.get("user_impact", "—")}</div>'
-#                     f'</div>'
-#                     # framework reference
-#                     + (f'<div style="display:flex;align-items:flex-start;gap:8px;'
-#                        f'padding-top:8px;border-top:1px solid #f1f5f9">'
-#                        f'<span style="font-size:16px;flex-shrink:0">📋</span>'
-#                        f'<div>'
-#                        f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
-#                        f'{ref.get("name", "—")}</div>'
-#                        f'<div style="font-size:11px;color:#64748b;margin-top:2px">'
-#                        f'{ref.get("description", "")}</div>'
-#                        + (f'<a href="{ref["url"]}" target="_blank" '
-#                           f'style="font-size:11px;color:#2563eb;word-break:break-all">'
-#                           f'🔗 {ref["url"]}</a>'
-#                           if ref.get("url") else "")
-#                        + '</div></div>'
-#                        if ref else "")
-#                     + '</div>',
-#                     unsafe_allow_html=True)
-#             _, dl1 = st.columns([3, 1])
-#             with dl1:
-#                 rc_rows = [{
-#                     "Finding #": rc.get("finding_number", i),
-#                     "Dominant Metric": rc.get("dominant_metric", ""),
-#                     "Score Evidence": rc.get("score_evidence", ""),
-#                     "Root Cause": rc.get("root_cause_explanation", ""),
-#                     "User Impact": rc.get("user_impact", ""),
-#                     "Framework": rc.get("framework_reference", {}).get("name", ""),
-#                     "Framework URL": rc.get("framework_reference", {}).get("url", ""),
-#                 } for i, rc in enumerate(gov["root_causes"], 1)]
-#                 green_download(
-#                     "⬇ Download Root Causes",
-#                     to_excel_bytes(pd.DataFrame(rc_rows)),
-#                     "root_cause_analysis.xlsx",
-#                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-#                     key="dl_rc")
-#         # ── GOVERNANCE RECOMMENDATIONS ────────────────────────────────────────
-#         if gov.get("recommendations"):
-#             st.markdown("<br>", unsafe_allow_html=True)
-#             section_label(
-#                 f"GOVERNANCE RECOMMENDATIONS  ·  {len(gov['recommendations'])} actions")
-#             if gov.get("gov_generated_at"):
-#                 st.caption(f"Generated at {gov['gov_generated_at']}")
-#             # Priority summary strip
-#             prio_counts = {"Critical": 0, "High": 0, "Medium": 0}
-#             for rec in gov["recommendations"]:
-#                 p = rec.get("priority", "Medium")
-#                 if p in prio_counts:
-#                     prio_counts[p] += 1
-#             pc1, pc2, pc3, _ = st.columns([1, 1, 1, 3])
-#             for col, (p, clr) in zip(
-#                     [pc1, pc2, pc3],
-#                     [("Critical", "#dc2626"), ("High", "#d97706"), ("Medium", "#2563eb")]):
-#                 col.markdown(
-#                     f'<div style="background:white;border:1px solid {clr}40;'
-#                     f'border-radius:8px;padding:10px;border-top:3px solid {clr};'
-#                     f'text-align:center">'
-#                     f'<div style="font-size:10px;color:#64748b;font-weight:700">{p}</div>'
-#                     f'<div style="font-size:22px;font-weight:800;color:{clr}">'
-#                     f'{prio_counts[p]}</div></div>',
-#                     unsafe_allow_html=True)
-#             st.markdown("<br>", unsafe_allow_html=True)
-#             for rec in gov["recommendations"]:
-#                 num = rec.get("recommendation_number", "")
-#                 priority = rec.get("priority", "Medium")
-#                 p_color = rec.get("priority_color",
-#                                   PRIORITY_COLORS.get(priority, "#64748b"))
-#                 ref = rec.get("framework_reference", {})
-#                 metric = rec.get("metric", "")
-#                 m_color = LEGACY_COLORS.get(metric, "#6366f1")
-#                 st.markdown(
-#                     f'<div style="background:white;border:1px solid #e2e8f0;'
-#                     f'border-radius:12px;padding:20px 24px;margin-bottom:14px;'
-#                     f'border-left:4px solid {p_color};'
-#                     f'box-shadow:0 1px 4px rgba(0,0,0,0.04)">'
-#                     # header row
-#                     f'<div style="display:flex;align-items:center;'
-#                     f'justify-content:space-between;margin-bottom:12px">'
-#                     f'<div style="display:flex;align-items:center;gap:8px">'
-#                     f'<span style="background:#f1f5f9;color:#475569;font-size:11px;'
-#                     f'font-weight:700;padding:2px 10px;border-radius:20px">#{num}</span>'
-#                     f'<span style="background:{p_color};color:white;padding:3px 12px;'
-#                     f'border-radius:20px;font-size:10px;font-weight:800">{priority}</span>'
-#                     f'</div>'
-#                     f'<span style="background:{m_color}20;color:{m_color};'
-#                     f'padding:3px 12px;border-radius:20px;font-size:11px;font-weight:700;'
-#                     f'border:1px solid {m_color}40">{metric}</span>'
-#                     f'</div>'
-#                     # action
-#                     f'<div style="margin-bottom:10px">'
-#                     f'<div style="font-size:10px;font-weight:700;color:#64748b;'
-#                     f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">'
-#                     f'Action</div>'
-#                     f'<div style="font-size:13px;color:#1e293b;line-height:1.7">'
-#                     f'{rec.get("recommendation", "—")}</div>'
-#                     f'</div>'
-#                     # expected impact
-#                     f'<div style="background:#f0fdf4;border-radius:8px;'
-#                     f'padding:10px 14px;margin-bottom:10px">'
-#                     f'<div style="font-size:10px;font-weight:700;color:#16a34a;'
-#                     f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">'
-#                     f'Expected Impact</div>'
-#                     f'<div style="font-size:12px;color:#14532d;line-height:1.6">'
-#                     f'{rec.get("expected_impact", "—")}</div>'
-#                     f'</div>'
-#                     # framework reference
-#                     + (f'<div style="display:flex;align-items:flex-start;gap:8px;'
-#                        f'padding-top:8px;border-top:1px solid #f1f5f9">'
-#                        f'<span style="font-size:16px;flex-shrink:0">📋</span>'
-#                        f'<div>'
-#                        f'<div style="font-size:11px;font-weight:700;color:#2563eb">'
-#                        f'{ref.get("name", "—")}</div>'
-#                        f'<div style="font-size:11px;color:#64748b;margin-top:2px">'
-#                        f'{ref.get("description", "")}</div>'
-#                        + (f'<a href="{ref["url"]}" target="_blank" '
-#                           f'style="font-size:11px;color:#2563eb;word-break:break-all">'
-#                           f'🔗 {ref["url"]}</a>'
-#                           if ref.get("url") else "")
-#                        + '</div></div>'
-#                        if ref else "")
-#                     + '</div>',
-#                     unsafe_allow_html=True)
-#             _, dl2 = st.columns([3, 1])
-#             with dl2:
-#                 rec_rows = [{
-#                     "#": rec.get("recommendation_number", i),
-#                     "Priority": rec.get("priority", ""),
-#                     "Metric": rec.get("metric", ""),
-#                     "Recommendation": rec.get("recommendation", ""),
-#                     "Expected Impact": rec.get("expected_impact", ""),
-#                     "Framework": rec.get("framework_reference", {}).get("name", ""),
-#                     "Framework URL": rec.get("framework_reference", {}).get("url", ""),
-#                 } for i, rec in enumerate(gov["recommendations"], 1)]
-#                 green_download(
-#                     "⬇ Download Recommendations",
-#                     to_excel_bytes(pd.DataFrame(rec_rows)),
-#                     "governance_recommendations.xlsx",
-#                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-#                     key="dl_gov")
